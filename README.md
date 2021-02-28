@@ -4,10 +4,11 @@
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/eps696/aphantasia/blob/master/Aphantasia.ipynb)
 
-This is text-to-image tool, supplementary to the art piece of the same name. 
+This is text-to-image tool, supplementary to the art piece of the same name.   
 It's based on [CLIP] model, with FFT parameterizer from [Lucent] library as a generator. 
 
-*[Aphantasia] is the inability to visualize mental images, the deprivation of visual dreams. The image in the header is how this tool sees it.*
+*[Aphantasia] is the inability to visualize mental images, the deprivation of visual dreams.  
+The image in the header is how this tool sees it.*
 
 ## Features
 * generating massive detailed textures, a la deepdream
@@ -26,7 +27,7 @@ It's based on [CLIP] model, with FFT parameterizer from [Lucent] library as a ge
 ```
 python clip_fft.py -t "the text" --size 1280-720
 ```
-* Reproduce image:
+* Reproduce an image:
 ```
 python clip_fft.py -i theimage.jpg --sync 0.3
 ```
@@ -40,13 +41,13 @@ Use `--translate` option to process non-English languages.
 python clip_fft.py -t "macro figures" -t2 "micro details" -t0 "avoid this" --size 1280-720 
 ```
 
-`--steps N` sets iterations count. 50-100 is enough for a starter; 500-1000 would elaborate the image more thoroughly.  
-`--samples N` sets amount of the image cuts (samples), processed at one step. With more samples you can set fewer iterations for about the same result (and vice versa). 200/200 is a good guess.  
+`--steps N` sets iterations count. 50-100 is enough for a starter; 500-1000 would elaborate it more thoroughly.  
+`--samples N` sets amount of the image cuts (samples), processed at one step. With more samples you can set fewer iterations for similar result (and vice versa). 200/200 is a good guess.  
 `--fstep N` tells to save every Nth frame (useful with high iterations).  
 `--dual` turns on optimisation with both CLIP models (a bit different results).  
-`--invert` negates the whole criteria, if you fancy checking "the totally opposite".
+`--invert` negates the whole criteria, if you fancy checking "totally opposite".
 
-`--uniform` mode (on by default) sets random sampling, usually producing seamlessly tileable textures. Set it to `False`, if you need more centered composition. 
+`--uniform` mode ('on' by default) sets random sampling, usually producing seamlessly tileable textures. Set it to `False`, if you need more centered composition.  
 `--save_pt myfile.pt` will save FFT params, to resume for next query with `--resume myfile.pt`.
 
 ## Credits
