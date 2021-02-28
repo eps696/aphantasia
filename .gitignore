@@ -1,0 +1,13 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+_cudacache/
+.pytest_cache
+*.egg-info
+thumbs.db
+
+.ipynb_checkpoints
+
+*.pkl
+*.pt
+*.avi
+*.mp4
