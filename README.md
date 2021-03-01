@@ -4,7 +4,7 @@
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/eps696/aphantasia/blob/master/Aphantasia.ipynb)
 
-This is text-to-image tool, supplementary to the art piece of the same name.   
+This is a text-to-image tool, part of the artwork of the same name.   
 It's based on [CLIP] model, with FFT parameterizer from [Lucent] library as a generator. 
 
 *[Aphantasia] is the inability to visualize mental images, the deprivation of visual dreams.  

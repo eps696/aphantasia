@@ -102,7 +102,7 @@ def fft_image(shape, sd=0.01, decay_power=1.0):
         scaled_spectrum_t = scale * spectrum_real_imag_t
         image = torch.irfft(scaled_spectrum_t, 2, normalized=True, signal_sizes=(h, w))
         image = image[:batch, :channels, :h, :w]
-        image = image * 1.4 / image.std()
+        image = image * 1.33 / image.std()
         # image = image * a.contrast
         return image
     return [spectrum_real_imag_t], inner
@@ -220,6 +220,7 @@ def main():
     if a.in_img is not None and os.path.isfile(a.in_img):
         print(' ref image:', basename(a.in_img))
         img_in = torch.from_numpy(img_read(a.in_img)/255.).unsqueeze(0).permute(0,3,1,2).cuda()
+        img_in = img_in[:,:3,:,:] # fix rgb channels
         in_sliced = slice_imgs([img_in], a.samples, transform=norm_in, uniform=a.uniform)[0]
         img_enc = model_vit.encode_image(in_sliced).detach().clone()
         if a.dual is True:
