@@ -8,6 +8,20 @@ import torch.nn.functional as F
 def basename(file):
     return os.path.splitext(os.path.basename(file))[0]
 
+def file_list(path, ext=None, subdir=None):
+    if subdir is True:
+        files = [os.path.join(dp, f) for dp, dn, fn in os.walk(path) for f in fn]
+    else:
+        files = [os.path.join(path, f) for f in os.listdir(path)]
+    if ext is not None: 
+        if isinstance(ext, list):
+            files = [f for f in files if os.path.splitext(f.lower())[1][1:] in ext]
+        elif isinstance(ext, str):
+            files = [f for f in files if f.endswith(ext)]
+        else:
+            print(' Unknown extension/type for file list!')
+    return sorted([f for f in files if os.path.isfile(f)])
+
 def img_list(path, subdir=None):
     if subdir is True:
         files = [os.path.join(dp, f) for dp, dn, fn in os.walk(path) for f in fn]
