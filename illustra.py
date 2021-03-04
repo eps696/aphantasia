@@ -35,7 +35,7 @@ def get_args():
     parser.add_argument('-v', '--verbose', default=True, type=bool)
     # training
     parser.add_argument('--samples', default=200, type=int, help='Samples to evaluate')
-    parser.add_argument('--lrate', default=0.05, type=float, help='Learning rate')
+    parser.add_argument('--lrate', default=1., type=float, help='Learning rate')
     parser.add_argument('-n', '--noise', default=0., type=float, help='Add noise to suppress accumulation')
     parser.add_argument('-o', '--overscan', default=True, help='Extra padding to add seamless tiling')
     parser.add_argument('-d', '--dual', action='store_true', help='Use both CLIP models at once')

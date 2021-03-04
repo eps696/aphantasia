@@ -72,7 +72,8 @@ python illustra.py -i mysong.txt --size 1280-720 --length 155
 This will produce frame sequences and short videos for every text line, as well as total video. 
 
 NB: since the parameters are accumulated on the process (grabbing some foreign extra imagery and getting stuck to it), 
-there's a dirty hack in attempt to push the generator away from it: adding some noise, controlled with `--noise X` argument. Sometimes helpful, sometimes not. 
+there's a dirty hack in attempt to push the generator away from it: adding some noise, controlled with `--noise X` argument. Sometimes it helps, sometimes not.  
+Also feel free to explore learning rate (from 0.01 to 10 or more).
 
 ## Credits
 
