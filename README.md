@@ -60,7 +60,9 @@ python clip_fft.py -t "macro figures" -t2 "micro details" -t0 "avoid this" --siz
 `--save_pt myfile.pt` will save FFT parameters, to resume for next query with `--resume myfile.pt`.
 `--verbose` ('on' by default) enables some printouts and realtime image preview.
 
-## Continuous mode
+## Continuous mode 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/eps696/aphantasia/blob/master/Illustra.ipynb)
+
 
 * Make a video from text file, processing it line by line in one shot:
 ```
