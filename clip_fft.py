@@ -13,7 +13,7 @@ import torch.nn.functional as F
 
 import clip
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
-import ssim
+import pytorch_ssim as ssim
 
 from utils import pad_up_to, basename, img_list, img_read
 try: # progress bar for notebooks 
@@ -107,7 +107,7 @@ def fft_image(shape, sd=0.01, decay_power=1.0, resume=None):
     def inner(noise=None):
         scaled_spectrum_t = scale * spectrum_real_imag_t
         if noise is not None:
-            scaled_spectrum_t += noise
+            scaled_spectrum_t += noise * scale
         image = torch.irfft(scaled_spectrum_t, 2, normalized=True, signal_sizes=(h, w))
         image = image[:batch, :channels, :h, :w]
         image = image * 1.33 / image.std()

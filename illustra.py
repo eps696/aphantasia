@@ -12,7 +12,6 @@ import torch.nn.functional as F
 
 import clip
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
-import ssim
 
 from clip_fft import to_valid_rgb, fft_image, slice_imgs, checkout
 from utils import pad_up_to, basename, file_list, img_list, img_read
