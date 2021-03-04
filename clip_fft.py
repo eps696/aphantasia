@@ -15,8 +15,12 @@ import clip
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 import ssim
 
-from progress_bar import ProgressBar
 from utils import pad_up_to, basename, img_list, img_read
+try: # progress bar for notebooks 
+    get_ipython().__class__.__name__
+    from progress_bar import ProgressIPy as ProgressBar
+except: # normal console
+    from progress_bar import ProgressBar
 
 def get_args():
     parser = argparse.ArgumentParser()
