@@ -16,7 +16,11 @@ import ssim
 
 from clip_fft import to_valid_rgb, fft_image, slice_imgs, checkout
 from utils import pad_up_to, basename, file_list, img_list, img_read
-from progress_bar import ProgressBar
+try: # progress bar for notebooks 
+    get_ipython().__class__.__name__
+    from progress_bar import ProgressIPy as ProgressBar
+except: # normal console
+    from progress_bar import ProgressBar
 
 def get_args():
     parser = argparse.ArgumentParser()
