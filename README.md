@@ -51,29 +51,32 @@ python clip_fft.py -t "macro figures" -t2 "micro details" -t0 "avoid this" --siz
 ```
 * Other options:  
 `--model M` selects one of the released CLIP models: `ViT-B/32` (default), `RN50`, `RN50x4`, `RN101`.  
+`--overscan` mode processes double-padded image to produce more uniform (and probably seamlessly tileable) textures. Omit it, if you need more centered composition.  
 `--steps N` sets iterations count. 50-100 is enough for a starter; 500-1000 would elaborate it more thoroughly.  
 `--samples N` sets amount of the image cuts (samples), processed at one step. With more samples you can set fewer iterations for similar result (and vice versa). 200/200 is a good guess. NB: GPU memory is mostly eaten by this count (not resolution)!  
 `--fstep N` tells to save every Nth frame (useful with high iterations, default is 1).  
-`--contrast X` may be needed for new RN models (they tend to burn the colors).  
+`--contrast X` may be needed for new ResNet models (they tend to burn the colors).  
 `--noise X` adds some noise to the parameters, possibly making composition less clogged (in a degree).  
 `--lrate` controls learning rate. The range is quite wide (tested from 0.01 to 10, try less/more).  
 `--invert` negates the whole criteria, if you fancy checking "totally opposite".  
-
-`--overscan` mode processes double-padded image to produce more uniform (and probably seamlessly tileable) textures. Leave it as `False`, if you need more centered composition.  
 `--save_pt myfile.pt` will save FFT parameters, to resume for next query with `--resume myfile.pt`.  
 `--verbose` ('on' by default) enables some printouts and realtime image preview.  
 
 ## Continuous mode 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/eps696/aphantasia/blob/master/Illustra.ipynb)
 
-* Make a video from text file, processing it line by line in one shot:
+* Make video from a text file, processing it line by line in one shot:
 ```
 python illustra.py -i mysong.txt --size 1280-720 --length 155
 ```
-`length` argument defines video duration in seconds (useful to illustrate song lyrics).  
-This will first generate the frames (with training sequences and videos) for every text line, then render final video from those (mixing them in FFT space). 
+This will first generate and save images for every text line (with sequences and training videos, as in single-image mode above), then render final video from those (mixing images in FFT space) of the `length` duration in seconds.  
 
-By default, every frame is produced independently (randomly initiated). `--keep all` option makes each generation start from the average of previous runs (means smoother transitions). `--keep last` would make generation even more continuous, but it may lead to accumulating extra features and getting stuck; so use with care. 
+By default, every frame is produced independently (randomly initiated). `--keep all` starts each generation from the average of previous runs; on practice that means similar compositions and smoother transitions. `--keep last` starts generation closer to the last previous run; that make every frame look more like previous (and a sequence - even more continuous), but it may lead imagery to simply getting stuck; so use the latter with care.
+
+* Make video from a directory with saved *.pt snapshots (just interpolate them):
+```
+python interpol.py -i mydir --size 1280-720 --length 155
+```
 
 ## Credits
 
