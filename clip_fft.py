@@ -1,3 +1,4 @@
+# coding: UTF-8
 import os
 # import warnings
 # warnings.filterwarnings("ignore")
@@ -22,40 +23,44 @@ try: # progress bar for notebooks
 except: # normal console
     from progress_bar import ProgressBar
 
+clip_models = ['ViT-B/32', 'RN50', 'RN50x4', 'RN101']
+
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i', '--in_img', default=None, help='input image')
-    parser.add_argument('-t', '--in_txt', default=None, help='input text')
+    parser.add_argument('-i',  '--in_img',  default=None, help='input image')
+    parser.add_argument('-t',  '--in_txt',  default=None, help='input text')
     parser.add_argument('-t2', '--in_txt2', default=None, help='input text for small details')
     parser.add_argument('-t0', '--in_txt0', default=None, help='input text to subtract')
-    parser.add_argument('--out_dir', default='_out')
-    parser.add_argument('-s', '--size', default='1280-720', help='Output resolution')
-    parser.add_argument('-r', '--resume', default=None, help='Path to saved params, to resume from')
-    parser.add_argument('--fstep', default=1, type=int, help='Saving step')
+    parser.add_argument(       '--out_dir', default='_out')
+    parser.add_argument('-s',  '--size',    default='1280-720', help='Output resolution')
+    parser.add_argument('-r',  '--resume',  default=None, help='Path to saved FFT snapshots, to resume from')
+    parser.add_argument(       '--fstep',   default=1, type=int, help='Saving step')
     parser.add_argument('-tr', '--translate', action='store_true')
-    parser.add_argument('--save_pt', action='store_true', help='Save FFT params for further use')
-    parser.add_argument('-v', '--verbose', default=True, type=bool)
+    parser.add_argument(       '--save_pt', action='store_true', help='Save FFT snapshots for further use')
+    parser.add_argument('-v',  '--verbose', default=True, type=bool)
     # training
-    parser.add_argument('--steps', default=200, type=int, help='Total iterations')
-    parser.add_argument('--samples', default=200, type=int, help='Samples to evaluate')
-    parser.add_argument('--lrate', default=0.05, type=float, help='Learning rate')
-    parser.add_argument('-n', '--noise', default=0., type=float, help='Add noise to suppress accumulation')
-    # parser.add_argument('--contrast', default=1., type=float)
-    parser.add_argument('-o', '--overscan', default=True, help='Extra padding to add seamless tiling')
-    parser.add_argument('-c', '--sync', default=0, type=float, help='Sync output to input image')
-    parser.add_argument('--invert', action='store_true', help='Invert criteria')
-    parser.add_argument('-d', '--dual', action='store_true', help='Use both CLIP models at once')
+    parser.add_argument('-m',  '--model',   default='ViT-B/32', choices=clip_models, help='Select CLIP model to use')
+    parser.add_argument(       '--steps',   default=200, type=int, help='Total iterations')
+    parser.add_argument(       '--samples', default=200, type=int, help='Samples to evaluate')
+    parser.add_argument(       '--lrate',   default=0.05, type=float, help='Learning rate')
+    # tweaks
+    parser.add_argument('-o',  '--overscan', action='store_true', help='Extra padding to add seamless tiling')
+    parser.add_argument(       '--contrast', default=1., type=float)
+    parser.add_argument('-n',  '--noise',   default=0, type=float, help='Add noise to suppress accumulation') # < 0.05 ?
+    parser.add_argument('-c',  '--sync',    default=0, type=float, help='Sync output to input image')
+    parser.add_argument(       '--invert',  action='store_true', help='Invert criteria')
     a = parser.parse_args()
 
     if a.size is not None: a.size = [int(s) for s in a.size.split('-')][::-1]
     if len(a.size)==1: a.size = a.size * 2
+    a.modsize = 288 if a.model == 'RN50x4' else 224
     return a
 
 ### FFT from Lucent library ###  https://github.com/greentfrapp/lucent
 
 def to_valid_rgb(image_f, decorrelate=True):
-    def inner(*args):
-        image = image_f(*args)
+    def inner(*args, **kwargs):
+        image = image_f(*args, **kwargs)
         if decorrelate:
             image = _linear_decorrelate_color(image)
         return torch.sigmoid(image)
@@ -90,28 +95,31 @@ def rfft2d_freqs(h, w):
     return np.sqrt(fx * fx + fy * fy)
 
 def fft_image(shape, sd=0.01, decay_power=1.0, resume=None):
-    batch, channels, h, w = shape
+    b, ch, h, w = shape
     freqs = rfft2d_freqs(h, w)
-    init_val_size = (batch, channels) + freqs.shape + (2,) # 2 for imaginary and real components
+    init_val_size = (b, ch) + freqs.shape + (2,) # 2 for imaginary and real components
 
     if resume is None:
         spectrum_real_imag_t = (torch.randn(*init_val_size) * sd).cuda().requires_grad_(True)
-    elif os.path.isfile(resume):
-        spectrum_real_imag_t = torch.load(resume)[0].cuda().requires_grad_(True)
-        print(' resuming from:', resume)
-        print(spectrum_real_imag_t.shape)
+    elif isinstance(resume, str) and os.path.isfile(resume):
+        saved = torch.load(resume)
+        if isinstance(saved, list): saved = saved[0]
+        spectrum_real_imag_t = saved.cuda().requires_grad_(True)
+        print(' resuming from:', resume, spectrum_real_imag_t.shape)
+    else:
+        spectrum_real_imag_t = resume.cuda().requires_grad_(True)
 
     scale = 1.0 / np.maximum(freqs, 1.0 / max(w, h)) ** decay_power
+    scale *= np.sqrt(w*h)
     scale = torch.tensor(scale).float()[None, None, ..., None].cuda()
 
-    def inner(noise=None):
+    def inner(shift=None, contrast=1.):
         scaled_spectrum_t = scale * spectrum_real_imag_t
-        if noise is not None:
-            scaled_spectrum_t += noise * scale
+        if shift is not None:
+            scaled_spectrum_t += scale * shift
         image = torch.irfft(scaled_spectrum_t, 2, normalized=True, signal_sizes=(h, w))
-        image = image[:batch, :channels, :h, :w]
-        image = image * 1.33 / image.std()
-        # image = image * a.contrast
+        image = image[:b, :ch, :h, :w]
+        image = image * contrast * 1.33 / image.std() # keep contrast, empirical
         return image
     return [spectrum_real_imag_t], inner
 
@@ -135,7 +143,7 @@ def checkout(img, fname=None, verbose=False):
         img = np.clip(img*255, 0, 255).astype(np.uint8)
         cv2.imwrite(fname, img[:,:,::-1])
 
-def slice_imgs(imgs, count, transform=None, overscan=False, micro=None):
+def slice_imgs(imgs, count, size=224, transform=None, overscan=False, micro=None):
     def map(x, a, b):
         return x * (b-a) + a
 
@@ -154,7 +162,7 @@ def slice_imgs(imgs, count, transform=None, overscan=False, micro=None):
         cuts = []
         for c in range(count):
             if micro is True: # both scales, micro mode
-                csize = map(rnd_size[c], 64, max(224, 0.25*sz_min[i])).int()
+                csize = map(rnd_size[c], 64, max(size, 0.25*sz_min[i])).int()
             elif micro is False: # both scales, macro mode
                 csize = map(rnd_size[c], 0.5*sz_min[i], 0.98*sz_min[i]).int()
             else: # single scale
@@ -162,12 +170,15 @@ def slice_imgs(imgs, count, transform=None, overscan=False, micro=None):
             offsetx = map(rnd_offx[c], 0, sz[i][1] - csize).int()
             offsety = map(rnd_offy[c], 0, sz[i][0] - csize).int()
             cut = img[:, :, offsety:offsety + csize, offsetx:offsetx + csize]
-            cut = F.interpolate(cut, (224,224), mode='bicubic', align_corners=False) # bilinear
+            cut = F.interpolate(cut, (size,size), mode='bicubic', align_corners=False) # bilinear
             if transform is not None: 
                 cut = transform(cut)
             cuts.append(cut)
         sliced.append(torch.cat(cuts, 0))
     return sliced
+
+def txt_clean(txt):
+    return txt.translate(str.maketrans(dict.fromkeys(list("\n',—|!?/:;\\"), ""))).replace(' ', '_').replace('"', '')
 
 
 def main():
@@ -176,28 +187,24 @@ def main():
     def train(i):
         loss = 0
         
-        noise = a.noise * torch.randn(1, 1, *params[0].shape[2:4], 1).cuda() if a.noise > 0 else 0.
+        noise = a.noise * torch.randn(1, 1, *params[0].shape[2:4], 1).cuda() if a.noise > 0 else None
         img_out = image_f(noise)
 
         micro = None if a.in_txt2 is None else False
-        imgs_sliced = slice_imgs([img_out], a.samples, norm_in, a.overscan, micro=micro)
-        out_enc = model_vit.encode_image(imgs_sliced[-1])
-        if a.dual is True: # use both clip models
-            out_enc = torch.cat((out_enc, model_rn.encode_image(imgs_sliced[-1])), 1)
+        imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.overscan, micro=micro)
+        out_enc = model_clip.encode_image(imgs_sliced[-1])
         if a.in_img is not None and os.path.isfile(a.in_img): # input image
-            loss += sign * 100*torch.cosine_similarity(img_enc, out_enc, dim=-1).mean()
+            loss +=  sign * torch.cosine_similarity(img_enc, out_enc, dim=-1).mean()
         if a.in_txt is not None: # input text
-            loss += sign * 100*torch.cosine_similarity(txt_enc, out_enc, dim=-1).mean()
+            loss +=  sign * torch.cosine_similarity(txt_enc, out_enc, dim=-1).mean()
         if a.in_txt0 is not None: # subtract text
-            loss += -sign * 100*torch.cosine_similarity(txt_enc0, out_enc, dim=-1).mean()
+            loss += -sign * torch.cosine_similarity(txt_enc0, out_enc, dim=-1).mean()
         if a.sync > 0 and a.in_img is not None and os.path.isfile(a.in_img): # image composition
             loss *= 1. + a.sync * (a.steps/(i+1) * ssim_loss(img_out, img_in) - 1)
         if a.in_txt2 is not None: # input text for micro details
-            imgs_sliced = slice_imgs([img_out], a.samples, norm_in, a.overscan, micro=True)
-            out_enc2 = model_vit.encode_image(imgs_sliced[-1])
-            if a.dual is True:
-                out_enc2 = torch.cat((out_enc2, model_rn.encode_image(imgs_sliced[-1])), 1)
-            loss += sign * 100*torch.cosine_similarity(txt_enc2, out_enc2, dim=-1).mean()
+            imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.overscan, micro=True)
+            out_enc2 = model_clip.encode_image(imgs_sliced[-1])
+            loss +=  sign * torch.cosine_similarity(txt_enc2, out_enc2, dim=-1).mean()
             del out_enc2; torch.cuda.empty_cache()
 
         del img_out, imgs_sliced, out_enc; torch.cuda.empty_cache()
@@ -209,16 +216,16 @@ def main():
 
         if i % a.fstep == 0:
             with torch.no_grad():
-                img = image_f().cpu().numpy()[0]
-            checkout(img, os.path.join(tempdir, '%03d.jpg' % (i // a.fstep)), verbose=a.verbose)
+                img = image_f(contrast=a.contrast).cpu().numpy()[0]
+            checkout(img, os.path.join(tempdir, '%04d.jpg' % (i // a.fstep)), verbose=a.verbose)
             pbar.upd()
 
     # Load CLIP models
-    model_vit, _ = clip.load('ViT-B/32')
-    if a.dual is True:
-        if a.verbose is True: print(' using dual-model optimization')
-        model_rn, _ = clip.load('RN50', path='models/RN50.pt ')
-        a.samples = a.samples // 2
+    model_clip, _ = clip.load(a.model)
+    if a.verbose is True: print(' using model', a.model)
+    xmem = {'RN50':0.5, 'RN50x4':0.16, 'RN101':0.33}
+    if 'RN' in a.model:
+        a.samples = int(a.samples * xmem[a.model])
             
     norm_in = torchvision.transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
 
@@ -227,10 +234,8 @@ def main():
         if a.verbose is True: print(' ref image:', basename(a.in_img))
         img_in = torch.from_numpy(img_read(a.in_img)/255.).unsqueeze(0).permute(0,3,1,2).cuda()
         img_in = img_in[:,:3,:,:] # fix rgb channels
-        in_sliced = slice_imgs([img_in], a.samples, transform=norm_in, overscan=a.overscan)[0]
-        img_enc = model_vit.encode_image(in_sliced).detach().clone()
-        if a.dual is True:
-            img_enc = torch.cat((img_enc, model_rn.encode_image(in_sliced).detach().clone()), 1)
+        in_sliced = slice_imgs([img_in], a.samples, a.modsize, transform=norm_in, overscan=a.overscan)[0]
+        img_enc = model_clip.encode_image(in_sliced).detach().clone()
         if a.sync > 0:
             ssim_loss = ssim.SSIM(window_size = 11)
             img_in = F.interpolate(img_in, a.size).float()
@@ -246,36 +251,30 @@ def main():
             a.in_txt = translator.translate(a.in_txt, dest='en').text
             if a.verbose is True: print(' translated to:', a.in_txt) 
         tx = clip.tokenize(a.in_txt).cuda()
-        txt_enc = model_vit.encode_text(tx).detach().clone()
-        if a.dual is True:
-            txt_enc = torch.cat((txt_enc, model_rn.encode_text(tx).detach().clone()), 1)
-        out_name.append(basename(a.in_txt).replace(' ', '_').replace('\\', '_').replace('/', '_'))
+        txt_enc = model_clip.encode_text(tx).detach().clone()
+        out_name.append(txt_clean(a.in_txt))
 
     if a.in_txt2 is not None:
         if a.verbose is True: print(' micro text:', basename(a.in_txt2))
-        # a.samples = int(a.samples * 0.9)
+        a.samples = int(a.samples * 0.75)
         if a.translate:
             translator = Translator()
             a.in_txt2 = translator.translate(a.in_txt2, dest='en').text
             if a.verbose is True: print(' translated to:', a.in_txt2) 
         tx2 = clip.tokenize(a.in_txt2).cuda()
-        txt_enc2 = model_vit.encode_text(tx2).detach().clone()
-        if a.dual is True:
-            txt_enc2 = torch.cat((txt_enc2, model_rn.encode_text(tx2).detach().clone()), 1)
-        out_name.append(basename(a.in_txt2).replace(' ', '_').replace('\\', '_').replace('/', '_'))
+        txt_enc2 = model_clip.encode_text(tx2).detach().clone()
+        out_name.append(txt_clean(a.in_txt2))
 
     if a.in_txt0 is not None:
         if a.verbose is True: print(' subtract text:', basename(a.in_txt0))
-        # a.samples = int(a.samples * 0.9)
+        a.samples = int(a.samples * 0.75)
         if a.translate:
             translator = Translator()
             a.in_txt0 = translator.translate(a.in_txt0, dest='en').text
             if a.verbose is True: print(' translated to:', a.in_txt0) 
         tx0 = clip.tokenize(a.in_txt0).cuda()
-        txt_enc0 = model_vit.encode_text(tx0).detach().clone()
-        if a.dual is True:
-            txt_enc0 = torch.cat((txt_enc0, model_rn.encode_text(tx0).detach().clone()), 1)
-        out_name.append('off-' + basename(a.in_txt0).replace(' ', '_').replace('\\', '_').replace('/', '_'))
+        txt_enc0 = model_clip.encode_text(tx0).detach().clone()
+        out_name.append('off-' + txt_clean(a.in_txt0))
 
     params, image_f = fft_image([1, 3, *a.size], resume=a.resume)
     image_f = to_valid_rgb(image_f)
@@ -284,10 +283,8 @@ def main():
     sign = 1. if a.invert is True else -1.
 
     if a.verbose is True: print(' samples:', a.samples)
-    sfx = ''
-    sfx += '-d' if a.dual    is True else ''
-    sfx += '-c%.2g'%a.sync if a.sync > 0 else ''
-    out_name = '-'.join(out_name) + sfx
+    out_name = '-'.join(out_name)
+    out_name += '-%s' % a.model if 'RN' in a.model.upper() else ''
     tempdir = os.path.join(a.out_dir, out_name)
     os.makedirs(tempdir, exist_ok=True)
 
@@ -295,7 +292,7 @@ def main():
     for i in range(a.steps):
         train(i)
 
-    os.system('ffmpeg -v warning -y -i %s\%%03d.jpg "%s.mp4"' % (tempdir, os.path.join(a.out_dir, out_name)))
+    os.system('ffmpeg -v warning -y -i %s\%%04d.jpg "%s.mp4"' % (tempdir, os.path.join(a.out_dir, out_name)))
     shutil.copy(img_list(tempdir)[-1], os.path.join(a.out_dir, '%s-%d.jpg' % (out_name, a.steps)))
     if a.save_pt is True:
         torch.save(params, '%s.pt' % os.path.join(a.out_dir, out_name))
