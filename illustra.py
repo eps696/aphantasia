@@ -70,6 +70,7 @@ def main():
         a.samples = int(a.samples * xmem[a.model])
     workdir = os.path.join(a.out_dir, basename(a.in_txt))
     workdir += '-%s' % a.model if 'RN' in a.model.upper() else ''
+    os.makedirs(workdir, exist_ok=True)
 
     norm_in = torchvision.transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
 
@@ -82,15 +83,25 @@ def main():
         tx0 = clip.tokenize(a.in_txt0).cuda()
         txt_enc0 = model_clip.encode_text(tx0).detach().clone()
 
+    # make init
+    global params_start
+    params_shape = [1, 3, a.size[0], a.size[1]//2+1, 2]
+    params_start = torch.randn(*params_shape).cuda() # random init
+
+    if a.resume is not None and os.path.isfile(a.resume):
+        if a.verbose is True: print(' resuming from', a.resume)
+        params, _ = fft_image([1, 3, *a.size], resume = a.resume)
+        params_start = ema(params_start, params[0].detach(), 1)        
+    else:
+        a.resume = 'init.pt'
+
+    shutil.copy(a.resume, os.path.join(workdir, '000-%s.pt' % basename(a.resume)))
+    torch.save(params_start, 'init.pt') # final init
+    
     def process(txt, num):
 
         global params_start
-        if num==0: # initial step
-            params, image_f = fft_image([1, 3, *a.size], resume=a.resume)
-            params_start = params[0].detach().clone()
-            torch.save(params_start, 'tmp.pt') # random init
-        else: # further steps
-            params, image_f = fft_image([1, 3, *a.size], resume='tmp.pt')
+        params, image_f = fft_image([1, 3, *a.size], resume='init.pt')
         image_f = to_valid_rgb(image_f)
         optimizer = torch.optim.Adam(params, a.lrate)
     
@@ -102,7 +113,7 @@ def main():
         tx = clip.tokenize(txt).cuda()
         txt_enc = model_clip.encode_text(tx).detach().clone()
 
-        out_name = '%02d-%s' % (num, txt_clean(txt))
+        out_name = '%03d-%s' % (num+1, txt_clean(txt))
         out_name += '-%s' % a.model if 'RN' in a.model.upper() else ''
         tempdir = os.path.join(workdir, out_name)
         os.makedirs(tempdir, exist_ok=True)
@@ -134,9 +145,9 @@ def main():
 
         if a.keep == 'all':
             params_start = ema(params_start, params[0].detach(), num+1)
-            torch.save(params_start, 'tmp.pt')
+            torch.save(params_start, 'init.pt')
         elif a.keep == 'last':
-            torch.save((params_start + params[0].detach()) / 2, 'tmp.pt')
+            torch.save((params_start + params[0].detach()) / 2, 'init.pt')
         
         torch.save(params[0], '%s.pt' % os.path.join(workdir, out_name))
         shutil.copy(img_list(tempdir)[-1], os.path.join(workdir, '%s-%d.jpg' % (out_name, a.steps)))
@@ -178,7 +189,7 @@ def main():
             pbar.upd()
 
     os.system('ffmpeg -v warning -y -i %s\%%05d.jpg "%s.mp4"' % (tempdir, os.path.join(a.out_dir, basename(a.in_txt))))
-    if a.keep is True: os.remove('tmp.pt')
+    if a.keep is True: os.remove('init.pt')
 
 
 if __name__ == '__main__':

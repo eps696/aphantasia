@@ -19,14 +19,11 @@ except: # normal console
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--in_dir', default='pt')
-    parser.add_argument('--out_dir', default='_out')
-    parser.add_argument('-l',  '--length',  default=5, type=int, help='Total length in sec')
-    parser.add_argument('-s', '--size', default='1280-720', help='Output resolution')
+    parser.add_argument('-o', '--out_dir', default='_out')
+    parser.add_argument('-l', '--length',  default=60, type=int, help='Total length in sec')
+    parser.add_argument('-s', '--steps',   default=None, type=int, help='Override length')
     parser.add_argument('-v', '--verbose', default=True, type=bool)
     a = parser.parse_args()
-
-    if a.size is not None: a.size = [int(s) for s in a.size.split('-')][::-1]
-    if len(a.size)==1: a.size = a.size * 2
     return a
 
 def read_pt(file):
@@ -39,13 +36,17 @@ def main():
     
     ptfiles = file_list(a.in_dir, 'pt')
 
-    vsteps = int(a.length * 25 / len(ptfiles)) # 25 fps
+    ptest = torch.load(ptfiles[0])
+    if isinstance(ptest, list): ptest = ptest[0]
+    shape = [*ptest.shape[:3], (ptest.shape[3]-1)*2]
+
+    vsteps = int(a.length * 25 / len(ptfiles)) if a.steps is None else a.steps # 25 fps
     pbar = ProgressBar(vsteps * len(ptfiles))
     for px in range(len(ptfiles)):
         params1 = read_pt(ptfiles[px])
         params2 = read_pt(ptfiles[(px+1) % len(ptfiles)])
 
-        params, image_f = fft_image([1, 3, *a.size], resume=params1)
+        params, image_f = fft_image(shape, resume=params1)
         image_f = to_valid_rgb(image_f)
 
         for i in range(vsteps):
@@ -56,7 +57,7 @@ def main():
             if a.verbose is True: cvshow(img)
             pbar.upd()
 
-    os.system('ffmpeg -v warning -y -i %s\%%05d.jpg -c:v mjpeg -q:v 2 "%s-pts.avi"' % (tempdir, a.in_dir))
+    os.system('ffmpeg -v warning -y -i %s\%%05d.jpg "%s-pts.mp4"' % (tempdir, a.in_dir))
 
 
 if __name__ == '__main__':

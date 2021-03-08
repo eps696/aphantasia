@@ -105,7 +105,7 @@ def fft_image(shape, sd=0.01, decay_power=1.0, resume=None):
         saved = torch.load(resume)
         if isinstance(saved, list): saved = saved[0]
         spectrum_real_imag_t = saved.cuda().requires_grad_(True)
-        print(' resuming from:', resume, spectrum_real_imag_t.shape)
+        # print(' resuming from:', resume, spectrum_real_imag_t.shape)
     else:
         spectrum_real_imag_t = resume.cuda().requires_grad_(True)
 

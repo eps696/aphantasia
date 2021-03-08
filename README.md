@@ -38,7 +38,7 @@ python clip_fft.py -t "the text" --size 1280-720
 ```
 * Reproduce an image:
 ```
-python clip_fft.py -i theimage.jpg --sync 0.3
+python clip_fft.py -i theimage.jpg --sync 0.01
 ```
 `--sync X` argument (X = from 0 to 1) enables [SSIM] loss to keep the composition and details of the original image. 
 
@@ -71,16 +71,16 @@ python illustra.py -i mysong.txt --size 1280-720 --length 155
 ```
 This will first generate and save images for every text line (with sequences and training videos, as in single-image mode above), then render final video from those (mixing images in FFT space) of the `length` duration in seconds.  
 
-By default, every frame is produced independently (randomly initiated). `--keep all` starts each generation from the average of previous runs; on practice that means similar compositions and smoother transitions. `--keep last` starts generation closer to the last previous run; that make every frame look more like previous (and a sequence - even more continuous), but it may lead imagery to simply getting stuck; so use the latter with care.
+By default, every frame is produced independently (randomly initiated). Instead, `--keep all` starts each generation from the average of previous runs; on practice that means similar compositions and smoother transitions. `--keep last` amplifies that smoothness by starting generation close to the last run, but that can make imagery getting stuck. This behaviour heavily depends on the input, so test with your prompts and see what's better in your case.
 
 * Make video from a directory with saved *.pt snapshots (just interpolate them):
 ```
-python interpol.py -i mydir --size 1280-720 --length 155
+python interpol.py -i mydir --length 155
 ```
 
 ## Credits
 
-[CLIP], [the paper]
+[CLIP], [the paper]  
 Copyright (c) 2021 OpenAI
 
 Thanks to [Ryan Murdock], [Jonathan Fly] and [Hannu Toyryla] for ideas.
