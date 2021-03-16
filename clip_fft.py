@@ -43,6 +43,7 @@ def get_args():
     parser.add_argument(       '--steps',   default=200, type=int, help='Total iterations')
     parser.add_argument(       '--samples', default=200, type=int, help='Samples to evaluate')
     parser.add_argument(       '--lrate',   default=0.05, type=float, help='Learning rate')
+    parser.add_argument('-p',  '--prog',    action='store_true', help='Enable progressive lrate growth (up to double a.lrate)')
     # tweaks
     parser.add_argument('-o',  '--overscan', action='store_true', help='Extra padding to add seamless tiling')
     parser.add_argument(       '--contrast', default=1., type=float)
@@ -210,6 +211,11 @@ def main():
         del img_out, imgs_sliced, out_enc; torch.cuda.empty_cache()
         assert not isinstance(loss, int), ' Loss not defined, check the inputs'
         
+        if a.prog is True:
+            lr_cur = lr0 + (i / a.steps) * (lr1 - lr0)
+            for g in optimizer.param_groups: 
+                g['lr'] = lr_cur
+    
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -218,7 +224,7 @@ def main():
             with torch.no_grad():
                 img = image_f(contrast=a.contrast).cpu().numpy()[0]
             checkout(img, os.path.join(tempdir, '%04d.jpg' % (i // a.fstep)), verbose=a.verbose)
-            pbar.upd()
+            pbar.upd('.. lrate = %.4g' % lr_cur)
 
     # Load CLIP models
     model_clip, _ = clip.load(a.model)
@@ -279,7 +285,12 @@ def main():
     params, image_f = fft_image([1, 3, *a.size], resume=a.resume)
     image_f = to_valid_rgb(image_f)
 
-    optimizer = torch.optim.Adam(params, a.lrate) # pixel 1, fft 0.05
+    if a.prog is True:
+        lr1 = a.lrate * 2
+        lr0 = lr1 * 0.01
+    else:
+        lr0 = a.lrate
+    optimizer = torch.optim.Adam(params, lr0)
     sign = 1. if a.invert is True else -1.
 
     if a.verbose is True: print(' samples:', a.samples)

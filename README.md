@@ -57,7 +57,8 @@ python clip_fft.py -t "macro figures" -t2 "micro details" -t0 "avoid this" --siz
 `--fstep N` tells to save every Nth frame (useful with high iterations, default is 1).  
 `--contrast X` may be needed for new ResNet models (they tend to burn the colors).  
 `--noise X` adds some noise to the parameters, possibly making composition less clogged (in a degree).  
-`--lrate` controls learning rate. The range is quite wide (tested from 0.01 to 10, try less/more).  
+`--lrate` controls learning rate. The range is quite wide (tested at least within 0.001 to 10).  
+`--prog` sets progressive learning rate (from 0.1x to 2x of the one, set by `lrate`). it may boost macro forms creation in some cases. 
 `--invert` negates the whole criteria, if you fancy checking "totally opposite".  
 `--save_pt myfile.pt` will save FFT parameters, to resume for next query with `--resume myfile.pt`.  
 `--verbose` ('on' by default) enables some printouts and realtime image preview.  
@@ -71,7 +72,8 @@ python illustra.py -i mysong.txt --size 1280-720 --length 155
 ```
 This will first generate and save images for every text line (with sequences and training videos, as in single-image mode above), then render final video from those (mixing images in FFT space) of the `length` duration in seconds.  
 
-By default, every frame is produced independently (randomly initiated). Instead, `--keep all` starts each generation from the average of previous runs; on practice that means similar compositions and smoother transitions. `--keep last` amplifies that smoothness by starting generation close to the last run, but that can make imagery getting stuck. This behaviour heavily depends on the input, so test with your prompts and see what's better in your case.
+There is `--keep X` parameter, controlling how well the next line/image generation follows the previous. By default X = 0, and every frame is produced independently (i.e. randomly initiated). 
+Setting it higher starts each generation closer to the average of previous runs, effectively keeping the compositions more similar and the transitions smoother. Safe values are < 0.5 (higher numbers may cause the imagery getting stuck). This behaviour depends on the input, so test with your prompts and see what's better in your case.
 
 * Make video from a directory with saved *.pt snapshots (just interpolate them):
 ```

@@ -43,9 +43,10 @@ def get_args():
     parser.add_argument(       '--steps',   default=200, type=int, help='Total iterations')
     parser.add_argument(       '--samples', default=200, type=int, help='Samples to evaluate')
     parser.add_argument('-lr', '--lrate',   default=0.05, type=float, help='Learning rate')
+    parser.add_argument('-p',  '--prog',    action='store_true', help='Enable progressive lrate growth (up to double a.lrate)')
     # tweaks
     parser.add_argument('-o',  '--overscan', action='store_true', help='Extra padding to add seamless tiling')
-    parser.add_argument(       '--keep',    default=None, help='Accumulate imagery: None (random init), last, all')
+    parser.add_argument(       '--keep',    default=0, type=float, help='Accumulate imagery: 0 = random, 1 = prev ema')
     parser.add_argument(       '--contrast', default=1., type=float)
     parser.add_argument('-n',  '--noise',   default=0.02, type=float, help='Add noise to suppress accumulation')
     a = parser.parse_args()
@@ -84,26 +85,32 @@ def main():
         txt_enc0 = model_clip.encode_text(tx0).detach().clone()
 
     # make init
-    global params_start
+    global params_start, params_ema
     params_shape = [1, 3, a.size[0], a.size[1]//2+1, 2]
     params_start = torch.randn(*params_shape).cuda() # random init
-
+    params_ema = 0.
     if a.resume is not None and os.path.isfile(a.resume):
         if a.verbose is True: print(' resuming from', a.resume)
         params, _ = fft_image([1, 3, *a.size], resume = a.resume)
-        params_start = ema(params_start, params[0].detach(), 1)        
+        if a.keep > 0:
+            params_ema = params[0].detach()
     else:
         a.resume = 'init.pt'
 
-    shutil.copy(a.resume, os.path.join(workdir, '000-%s.pt' % basename(a.resume)))
     torch.save(params_start, 'init.pt') # final init
+    shutil.copy(a.resume, os.path.join(workdir, '000-%s.pt' % basename(a.resume)))
     
     def process(txt, num):
 
-        global params_start
         params, image_f = fft_image([1, 3, *a.size], resume='init.pt')
         image_f = to_valid_rgb(image_f)
-        optimizer = torch.optim.Adam(params, a.lrate)
+
+        if a.prog is True:
+            lr1 = a.lrate * 2
+            lr0 = a.lrate * 0.1
+        else:
+            lr0 = a.lrate
+        optimizer = torch.optim.Adam(params, lr0)
     
         if a.verbose is True: print(' ref text: ', txt)
         if a.translate:
@@ -132,6 +139,11 @@ def main():
                 loss += torch.cosine_similarity(txt_enc0, out_enc, dim=-1).mean()
             del img_out, imgs_sliced, out_enc; torch.cuda.empty_cache()
 
+            if a.prog is True:
+                lr_cur = lr0 + (i / a.steps) * (lr1 - lr0)
+                for g in optimizer.param_groups: 
+                    g['lr'] = lr_cur
+        
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -140,14 +152,13 @@ def main():
                 with torch.no_grad():
                     img = image_f(contrast=a.contrast).cpu().numpy()[0]
                 checkout(img, os.path.join(tempdir, '%04d.jpg' % (i // a.fstep)), verbose=a.verbose)
-                pbar.upd()
+                pbar.upd('.. lrate = %.4g' % lr_cur)
                 del img
 
-        if a.keep == 'all':
-            params_start = ema(params_start, params[0].detach(), num+1)
-            torch.save(params_start, 'init.pt')
-        elif a.keep == 'last':
-            torch.save((params_start + params[0].detach()) / 2, 'init.pt')
+        if a.keep > 0:
+            global params_start, params_ema
+            params_ema = ema(params_ema, params[0].detach(), num+1)
+            torch.save((1-a.keep) * params_start + a.keep * params_ema, 'init.pt')
         
         torch.save(params[0], '%s.pt' % os.path.join(workdir, out_name))
         shutil.copy(img_list(tempdir)[-1], os.path.join(workdir, '%s-%d.jpg' % (out_name, a.steps)))
@@ -189,7 +200,7 @@ def main():
             pbar.upd()
 
     os.system('ffmpeg -v warning -y -i %s\%%05d.jpg "%s.mp4"' % (tempdir, os.path.join(a.out_dir, basename(a.in_txt))))
-    if a.keep is True: os.remove('init.pt')
+    if a.keep > 0: os.remove('init.pt')
 
 
 if __name__ == '__main__':
