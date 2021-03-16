@@ -58,7 +58,7 @@ python clip_fft.py -t "macro figures" -t2 "micro details" -t0 "avoid this" --siz
 `--contrast X` may be needed for new ResNet models (they tend to burn the colors).  
 `--noise X` adds some noise to the parameters, possibly making composition less clogged (in a degree).  
 `--lrate` controls learning rate. The range is quite wide (tested at least within 0.001 to 10).  
-`--prog` sets progressive learning rate (from 0.1x to 2x of the one, set by `lrate`). it may boost macro forms creation in some cases (more here https://github.com/eps696/aphantasia/issues/2).  
+`--prog` sets progressive learning rate (from 0.1x to 2x of the one, set by `lrate`). it may boost macro forms creation in some cases (more [here](https://github.com/eps696/aphantasia/issues/2)).  
 `--invert` negates the whole criteria, if you fancy checking "totally opposite".  
 `--save_pt myfile.pt` will save FFT parameters, to resume for next query with `--resume myfile.pt`.  
 `--verbose` ('on' by default) enables some printouts and realtime image preview.  
