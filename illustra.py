@@ -1,4 +1,3 @@
-# coding: UTF-8
 import os
 import argparse
 import math
@@ -15,8 +14,8 @@ import torch.nn.functional as F
 import clip
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
-from clip_fft import to_valid_rgb, fft_image, slice_imgs, checkout, cvshow, txt_clean
-from utils import pad_up_to, basename, file_list, img_list, img_read
+from clip_fft import to_valid_rgb, fft_image, slice_imgs, checkout, cvshow
+from utils import pad_up_to, basename, file_list, img_list, img_read, txt_clean
 try: # progress bar for notebooks 
     get_ipython().__class__.__name__
     from progress_bar import ProgressIPy as ProgressBar
@@ -48,6 +47,8 @@ def get_args():
     parser.add_argument('-o',  '--overscan', action='store_true', help='Extra padding to add seamless tiling')
     parser.add_argument(       '--keep',    default=0, type=float, help='Accumulate imagery: 0 = random, 1 = prev ema')
     parser.add_argument(       '--contrast', default=1., type=float)
+    parser.add_argument('-d',  '--diverse', default=0, type=float, help='Endorse variety (difference between two parallel samples)')
+    parser.add_argument('-x',  '--expand',  default=0, type=float, help='Push farther (endorse diff between prev/next samples)')
     parser.add_argument('-n',  '--noise',   default=0.02, type=float, help='Add noise to suppress accumulation')
     a = parser.parse_args()
 
@@ -73,6 +74,9 @@ def main():
     workdir += '-%s' % a.model if 'RN' in a.model.upper() else ''
     os.makedirs(workdir, exist_ok=True)
 
+    if a.diverse > 0:
+        a.samples = int(a.samples * 0.5)
+            
     norm_in = torchvision.transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
 
     if a.in_txt0 is not None:
@@ -100,6 +104,7 @@ def main():
     torch.save(params_start, 'init.pt') # final init
     shutil.copy(a.resume, os.path.join(workdir, '000-%s.pt' % basename(a.resume)))
     
+    prev_enc = 0
     def process(txt, num):
 
         params, image_f = fft_image([1, 3, *a.size], resume='init.pt')
@@ -135,6 +140,16 @@ def main():
             imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.overscan, micro=None)
             out_enc = model_clip.encode_image(imgs_sliced[-1])
             loss -= torch.cosine_similarity(txt_enc, out_enc, dim=-1).mean()
+            if a.diverse > 0:
+                imgs_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, norm_in, a.overscan, micro=None)
+                out_enc2 = model_clip.encode_image(imgs_sliced[-1])
+                loss += a.diverse * torch.cosine_similarity(out_enc, out_enc2, dim=-1).mean()
+                del out_enc2; torch.cuda.empty_cache()
+            if a.expand > 0:
+                global prev_enc
+                if i > 0:
+                    loss += a.expand * torch.cosine_similarity(out_enc, prev_enc, dim=-1).mean()
+                prev_enc = out_enc.detach()
             if a.in_txt0 is not None: # subtract text
                 loss += torch.cosine_similarity(txt_enc0, out_enc, dim=-1).mean()
             del img_out, imgs_sliced, out_enc; torch.cuda.empty_cache()
@@ -152,7 +167,7 @@ def main():
                 with torch.no_grad():
                     img = image_f(contrast=a.contrast).cpu().numpy()[0]
                 checkout(img, os.path.join(tempdir, '%04d.jpg' % (i // a.fstep)), verbose=a.verbose)
-                pbar.upd('.. lrate = %.4g' % lr_cur)
+                pbar.upd()
                 del img
 
         if a.keep > 0:

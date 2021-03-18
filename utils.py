@@ -1,9 +1,13 @@
+# coding: UTF-8
 import os
 from imageio import imread, imsave
 import numpy as np
 
 import torch
 import torch.nn.functional as F
+
+def txt_clean(txt):
+    return txt.translate(str.maketrans(dict.fromkeys(list("\n',.—|!?/:;\\"), ""))).replace(' ', '_').replace('"', '')
 
 def basename(file):
     return os.path.splitext(os.path.basename(file))[0]

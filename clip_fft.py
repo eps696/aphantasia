@@ -1,4 +1,3 @@
-# coding: UTF-8
 import os
 # import warnings
 # warnings.filterwarnings("ignore")
@@ -16,7 +15,7 @@ import clip
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 import pytorch_ssim as ssim
 
-from utils import pad_up_to, basename, img_list, img_read
+from utils import pad_up_to, basename, img_list, img_read, txt_clean
 try: # progress bar for notebooks 
     get_ipython().__class__.__name__
     from progress_bar import ProgressIPy as ProgressBar
@@ -47,6 +46,8 @@ def get_args():
     # tweaks
     parser.add_argument('-o',  '--overscan', action='store_true', help='Extra padding to add seamless tiling')
     parser.add_argument(       '--contrast', default=1., type=float)
+    parser.add_argument('-d',  '--diverse', default=0, type=float, help='Endorse variety (difference between two parallel samples)')
+    parser.add_argument('-x',  '--expand',  default=0, type=float, help='Push farther (difference between prev/next samples)')
     parser.add_argument('-n',  '--noise',   default=0, type=float, help='Add noise to suppress accumulation') # < 0.05 ?
     parser.add_argument('-c',  '--sync',    default=0, type=float, help='Sync output to input image')
     parser.add_argument(       '--invert',  action='store_true', help='Invert criteria')
@@ -178,13 +179,11 @@ def slice_imgs(imgs, count, size=224, transform=None, overscan=False, micro=None
         sliced.append(torch.cat(cuts, 0))
     return sliced
 
-def txt_clean(txt):
-    return txt.translate(str.maketrans(dict.fromkeys(list("\n',—|!?/:;\\"), ""))).replace(' ', '_').replace('"', '')
-
 
 def main():
     a = get_args()
 
+    prev_enc = 0
     def train(i):
         loss = 0
         
@@ -194,6 +193,11 @@ def main():
         micro = None if a.in_txt2 is None else False
         imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.overscan, micro=micro)
         out_enc = model_clip.encode_image(imgs_sliced[-1])
+        if a.diverse > 0:
+            imgs_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, norm_in, a.overscan, micro=micro)
+            out_enc2 = model_clip.encode_image(imgs_sliced[-1])
+            loss += a.diverse * torch.cosine_similarity(out_enc, out_enc2, dim=-1).mean()
+            del out_enc2; torch.cuda.empty_cache()
         if a.in_img is not None and os.path.isfile(a.in_img): # input image
             loss +=  sign * torch.cosine_similarity(img_enc, out_enc, dim=-1).mean()
         if a.in_txt is not None: # input text
@@ -207,6 +211,11 @@ def main():
             out_enc2 = model_clip.encode_image(imgs_sliced[-1])
             loss +=  sign * torch.cosine_similarity(txt_enc2, out_enc2, dim=-1).mean()
             del out_enc2; torch.cuda.empty_cache()
+        if a.expand > 0:
+            global prev_enc
+            if i > 0:
+                loss += a.expand * torch.cosine_similarity(out_enc, prev_enc, dim=-1).mean()
+            prev_enc = out_enc.detach()
 
         del img_out, imgs_sliced, out_enc; torch.cuda.empty_cache()
         assert not isinstance(loss, int), ' Loss not defined, check the inputs'
@@ -224,7 +233,7 @@ def main():
             with torch.no_grad():
                 img = image_f(contrast=a.contrast).cpu().numpy()[0]
             checkout(img, os.path.join(tempdir, '%04d.jpg' % (i // a.fstep)), verbose=a.verbose)
-            pbar.upd('.. lrate = %.4g' % lr_cur)
+            pbar.upd()
 
     # Load CLIP models
     model_clip, _ = clip.load(a.model)
@@ -232,6 +241,9 @@ def main():
     xmem = {'RN50':0.5, 'RN50x4':0.16, 'RN101':0.33}
     if 'RN' in a.model:
         a.samples = int(a.samples * xmem[a.model])
+            
+    if a.diverse > 0:
+        a.samples = int(a.samples * 0.5)
             
     norm_in = torchvision.transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
 

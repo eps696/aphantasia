@@ -56,6 +56,8 @@ python clip_fft.py -t "macro figures" -t2 "micro details" -t0 "avoid this" --siz
 `--samples N` sets amount of the image cuts (samples), processed at one step. With more samples you can set fewer iterations for similar result (and vice versa). 200/200 is a good guess. NB: GPU memory is mostly eaten by this count (not resolution)!  
 `--fstep N` tells to save every Nth frame (useful with high iterations, default is 1).  
 `--contrast X` may be needed for new ResNet models (they tend to burn the colors).  
+`--diverse X` boosts compositional & contextual variety (difference between simultaneous samples). good start is ~0.2; can be negative.  
+`--expand X` boosts training steps in general (difference between consequent samples). good start is ~0.2.   
 `--noise X` adds some noise to the parameters, possibly making composition less clogged (in a degree).  
 `--lrate` controls learning rate. The range is quite wide (tested at least within 0.001 to 10).  
 `--prog` sets progressive learning rate (from 0.1x to 2x of the one, set by `lrate`). it may boost macro forms creation in some cases (more [here](https://github.com/eps696/aphantasia/issues/2)).  
