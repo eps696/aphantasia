@@ -194,7 +194,7 @@ def main():
         micro = None if a.in_txt2 is None else False
         imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.overscan, micro=micro)
         out_enc = model_clip.encode_image(imgs_sliced[-1])
-        if a.diverse > 0:
+        if a.diverse != 0:
             imgs_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, norm_in, a.overscan, micro=micro)
             out_enc2 = model_clip.encode_image(imgs_sliced[-1])
             loss += a.diverse * torch.cosine_similarity(out_enc, out_enc2, dim=-1).mean()
@@ -243,7 +243,7 @@ def main():
     if 'RN' in a.model:
         a.samples = int(a.samples * xmem[a.model])
             
-    if a.diverse > 0:
+    if a.diverse != 0:
         a.samples = int(a.samples * 0.5)
             
     norm_in = torchvision.transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
