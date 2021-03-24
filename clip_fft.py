@@ -55,6 +55,7 @@ def get_args():
 
     if a.size is not None: a.size = [int(s) for s in a.size.split('-')][::-1]
     if len(a.size)==1: a.size = a.size * 2
+    if a.in_img is not None and a.sync > 0: a.overscan = True
     a.modsize = 288 if a.model == 'RN50x4' else 224
     return a
 
@@ -199,13 +200,13 @@ def main():
             loss += a.diverse * torch.cosine_similarity(out_enc, out_enc2, dim=-1).mean()
             del out_enc2; torch.cuda.empty_cache()
         if a.in_img is not None and os.path.isfile(a.in_img): # input image
-            loss +=  sign * torch.cosine_similarity(img_enc, out_enc, dim=-1).mean()
+            loss +=  sign * 0.5 * torch.cosine_similarity(img_enc, out_enc, dim=-1).mean()
         if a.in_txt is not None: # input text
             loss +=  sign * torch.cosine_similarity(txt_enc, out_enc, dim=-1).mean()
         if a.in_txt0 is not None: # subtract text
             loss += -sign * torch.cosine_similarity(txt_enc0, out_enc, dim=-1).mean()
         if a.sync > 0 and a.in_img is not None and os.path.isfile(a.in_img): # image composition
-            loss *= 1. + a.sync * (a.steps/(i+1) * ssim_loss(img_out, img_in) - 1)
+            loss -= a.sync * ssim_loss(F.interpolate(img_out, ssim_size).float(), img_in)
         if a.in_txt2 is not None: # input text for micro details
             imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.overscan, micro=True)
             out_enc2 = model_clip.encode_image(imgs_sliced[-1])
@@ -256,7 +257,8 @@ def main():
         img_enc = model_clip.encode_image(in_sliced).detach().clone()
         if a.sync > 0:
             ssim_loss = ssim.SSIM(window_size = 11)
-            img_in = F.interpolate(img_in, a.size).float()
+            ssim_size = [s//8 for s in a.size]
+            img_in = F.interpolate(img_in, ssim_size).float()
         else:
             del img_in
         del in_sliced; torch.cuda.empty_cache()
