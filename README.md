@@ -38,9 +38,9 @@ python clip_fft.py -t "the text" --size 1280-720
 ```
 * Reproduce an image:
 ```
-python clip_fft.py -i theimage.jpg --sync 0.01
+python clip_fft.py -i theimage.jpg --sync 0.5
 ```
-`--sync X` argument (X = from 0 to 1) enables [SSIM] loss to keep the composition and details of the original image. 
+If `--sync X` argument > 0, [SSIM] loss is added to keep the composition similar to the original image. 
 
 You can combine both text and image prompts.  
 Use `--translate` option to process non-English languages. 
