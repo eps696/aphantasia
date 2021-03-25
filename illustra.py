@@ -13,6 +13,7 @@ import torch.nn.functional as F
 
 import clip
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
+from sentence_transformers import SentenceTransformer
 
 from clip_fft import to_valid_rgb, fft_image, slice_imgs, checkout, cvshow
 from utils import pad_up_to, basename, file_list, img_list, img_read, txt_clean
@@ -32,7 +33,8 @@ def get_args():
     parser.add_argument('-r',  '--resume',  default=None, help='Path to saved FFT snapshots, to resume from')
     parser.add_argument('-l',  '--length',  default=180, type=int, help='Total length in sec')
     parser.add_argument(       '--fstep',   default=1, type=int, help='Saving step')
-    parser.add_argument('-tr', '--translate', action='store_true')
+    parser.add_argument('-tr', '--translate', action='store_true', help='Translate text with Google Translate')
+    parser.add_argument('-ml', '--multilang', action='store_true', help='Use SBERT multilanguage model for text')
     parser.add_argument('-t0', '--in_txt0', default=None, help='input text to subtract')
     parser.add_argument(       '--save_pt', action='store_true', help='Save FFT snapshots for further use')
     parser.add_argument(       '--fps',     default=25, type=int)
@@ -85,8 +87,12 @@ def main():
             translator = Translator()
             a.in_txt0 = translator.translate(a.in_txt0, dest='en').text
             if a.verbose is True: print(' translated to:', a.in_txt0) 
-        tx0 = clip.tokenize(a.in_txt0).cuda()
-        txt_enc0 = model_clip.encode_text(tx0).detach().clone()
+        if a.multilang is True:
+            model_lang = SentenceTransformer('clip-ViT-B-32-multilingual-v1').cuda()
+            txt_enc0 = model_lang.encode([a.in_txt0], convert_to_tensor=True, show_progress_bar=False).detach().clone()
+            del model_lang
+        else:
+            txt_enc0 = model_clip.encode_text(clip.tokenize(a.in_txt0).cuda()).detach().clone()
 
     # make init
     global params_start, params_ema
@@ -122,8 +128,12 @@ def main():
             translator = Translator()
             txt = translator.translate(txt, dest='en').text
             if a.verbose is True: print(' translated to:', txt)
-        tx = clip.tokenize(txt).cuda()
-        txt_enc = model_clip.encode_text(tx).detach().clone()
+        if a.multilang is True:
+            model_lang = SentenceTransformer('clip-ViT-B-32-multilingual-v1').cuda()
+            txt_enc = model_lang.encode([txt], convert_to_tensor=True, show_progress_bar=False).detach().clone()
+            del model_lang
+        else:
+            txt_enc = model_clip.encode_text(clip.tokenize(txt).cuda()).detach().clone()
 
         out_name = '%03d-%s' % (num+1, txt_clean(txt))
         out_name += '-%s' % a.model if 'RN' in a.model.upper() else ''

@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 
 def txt_clean(txt):
-    return txt.translate(str.maketrans(dict.fromkeys(list("\n',.—|!?/:;\\"), ""))).replace(' ', '_').replace('"', '')
+    return txt.translate(str.maketrans(dict.fromkeys(list("\n',.вЂ”|!?/:;\\"), ""))).replace(' ', '_').replace('"', '')
 
 def basename(file):
     return os.path.splitext(os.path.basename(file))[0]
