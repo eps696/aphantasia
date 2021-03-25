@@ -1,4 +1,6 @@
 ftfy
+imageio
+ipywidgets
 regex
 tqdm
 googletrans==3.1.0a0
