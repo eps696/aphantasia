@@ -57,6 +57,7 @@ def get_args():
     if a.size is not None: a.size = [int(s) for s in a.size.split('-')][::-1]
     if len(a.size)==1: a.size = a.size * 2
     a.modsize = 288 if a.model == 'RN50x4' else 224
+    if a.multilang is True: a.model = 'ViT-B/32' # sbert model is trained with ViT
     return a
 
 def ema(base, next, step):

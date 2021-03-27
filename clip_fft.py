@@ -60,6 +60,7 @@ def get_args():
     if len(a.size)==1: a.size = a.size * 2
     if a.in_img is not None and a.sync > 0: a.overscan = True
     a.modsize = 288 if a.model == 'RN50x4' else 224
+    if a.multilang is True: a.model = 'ViT-B/32' # sbert model is trained with ViT
     return a
 
 ### FFT from Lucent library ###  https://github.com/greentfrapp/lucent
@@ -113,6 +114,7 @@ def fft_image(shape, sd=0.01, decay_power=1.0, resume=None):
         spectrum_real_imag_t = saved.cuda().requires_grad_(True)
         # print(' resuming from:', resume, spectrum_real_imag_t.shape)
     else:
+        if isinstance(resume, list): resume = resume[0]
         spectrum_real_imag_t = resume.cuda().requires_grad_(True)
 
     scale = 1.0 / np.maximum(freqs, 1.0 / max(w, h)) ** decay_power
