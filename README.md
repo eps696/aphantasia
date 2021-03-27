@@ -43,14 +43,14 @@ python clip_fft.py -i theimage.jpg --sync 0.5
 If `--sync X` argument > 0, [SSIM] loss is added to keep the composition similar to the original image. 
 
 You can combine both text and image prompts.  
-For non-English languages use either `--multilang` (multi-language CLIP model) or `--translate` (Google translation). 
+For non-English languages use either `--multilang` (multi-language CLIP model, trained with ViT) or `--translate` (Google translation, works with any visual model). 
 
 * Set more specific query like this:
 ```
 python clip_fft.py -t "macro figures" -t2 "micro details" -t0 "avoid this" --size 1280-720 
 ```
 * Other options:  
-`--model M` selects one of the released CLIP models: `ViT-B/32` (default), `RN50`, `RN50x4`, `RN101`.  
+`--model M` selects one of the released CLIP visual models: `ViT-B/32` (default), `RN50`, `RN50x4`, `RN101`.  
 `--overscan` mode processes double-padded image to produce more uniform (and probably seamlessly tileable) textures. Omit it, if you need more centered composition.  
 `--steps N` sets iterations count. 50-100 is enough for a starter; 500-1000 would elaborate it more thoroughly.  
 `--samples N` sets amount of the image cuts (samples), processed at one step. With more samples you can set fewer iterations for similar result (and vice versa). 200/200 is a good guess. NB: GPU memory is mostly eaten by this count (not resolution)!  
