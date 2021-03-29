@@ -102,9 +102,9 @@ def main():
     params_ema = 0.
     if a.resume is not None and os.path.isfile(a.resume):
         if a.verbose is True: print(' resuming from', a.resume)
-        params, _ = fft_image([1, 3, *a.size], resume = a.resume)
+        params, _ = fft_image([1, 3, *a.size], resume = a.resume, sd=1.)
         if a.keep > 0:
-            params_ema = params[0].detach()
+            params_ema = params[0].detach().clone()
     else:
         a.resume = 'init.pt'
 
@@ -114,7 +114,9 @@ def main():
     prev_enc = 0
     def process(txt, num):
 
-        params, image_f = fft_image([1, 3, *a.size], resume='init.pt')
+        sd = 0.01
+        if a.keep > 0: sd = a.keep + (1-a.keep) * sd
+        params, image_f = fft_image([1, 3, *a.size], resume='init.pt', sd=sd)
         image_f = to_valid_rgb(image_f)
 
         if a.prog is True:
@@ -160,7 +162,7 @@ def main():
                 global prev_enc
                 if i > 0:
                     loss += a.expand * torch.cosine_similarity(out_enc, prev_enc, dim=-1).mean()
-                prev_enc = out_enc.detach()
+                prev_enc = out_enc.detach().clone()
             if a.in_txt0 is not None: # subtract text
                 loss += torch.cosine_similarity(txt_enc0, out_enc, dim=-1).mean()
             del img_out, imgs_sliced, out_enc; torch.cuda.empty_cache()
@@ -183,7 +185,7 @@ def main():
 
         if a.keep > 0:
             global params_start, params_ema
-            params_ema = ema(params_ema, params[0].detach(), num+1)
+            params_ema = ema(params_ema, params[0].detach().clone(), num+1)
             torch.save((1-a.keep) * params_start + a.keep * params_ema, 'init.pt')
         
         torch.save(params[0], '%s.pt' % os.path.join(workdir, out_name))
@@ -214,7 +216,7 @@ def main():
         params1 = read_pt(ptfiles[px])
         params2 = read_pt(ptfiles[(px+1) % len(ptfiles)])
 
-        params, image_f = fft_image([1, 3, *a.size], resume=params1)
+        params, image_f = fft_image([1, 3, *a.size], resume=params1, sd=1.)
         image_f = to_valid_rgb(image_f)
 
         for i in range(vsteps):

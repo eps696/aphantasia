@@ -111,11 +111,11 @@ def fft_image(shape, sd=0.01, decay_power=1.0, resume=None):
     elif isinstance(resume, str) and os.path.isfile(resume):
         saved = torch.load(resume)
         if isinstance(saved, list): saved = saved[0]
-        spectrum_real_imag_t = saved.cuda().requires_grad_(True)
+        spectrum_real_imag_t = (saved * sd).cuda().requires_grad_(True)
         # print(' resuming from:', resume, spectrum_real_imag_t.shape)
     else:
         if isinstance(resume, list): resume = resume[0]
-        spectrum_real_imag_t = resume.cuda().requires_grad_(True)
+        spectrum_real_imag_t = (resume * sd).cuda().requires_grad_(True)
 
     scale = 1.0 / np.maximum(freqs, 1.0 / max(w, h)) ** decay_power
     scale *= np.sqrt(w*h)
