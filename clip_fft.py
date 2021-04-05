@@ -49,6 +49,7 @@ def get_args():
     # tweaks
     parser.add_argument('-o',  '--overscan', action='store_true', help='Extra padding to add seamless tiling')
     parser.add_argument(       '--contrast', default=1., type=float)
+    parser.add_argument(       '--colors',  default=1., type=float)
     parser.add_argument('-d',  '--diverse', default=0, type=float, help='Endorse variety (difference between two parallel samples)')
     parser.add_argument('-x',  '--expand',  default=0, type=float, help='Push farther (difference between prev/next samples)')
     parser.add_argument('-n',  '--noise',   default=0, type=float, help='Add noise to suppress accumulation') # < 0.05 ?
@@ -65,7 +66,21 @@ def get_args():
 
 ### FFT from Lucent library ###  https://github.com/greentfrapp/lucent
 
-def to_valid_rgb(image_f, decorrelate=True):
+def to_valid_rgb(image_f, colors=1., decorrelate=True):
+    color_correlation_svd_sqrt = np.asarray([[0.26, 0.09, 0.02],
+                                             [0.27, 0.00, -0.05],
+                                             [0.27, -0.09, 0.03]]).astype("float32")
+    color_correlation_svd_sqrt /= np.asarray([colors, 1., 1.]) # saturate, empirical
+    max_norm_svd_sqrt = np.max(np.linalg.norm(color_correlation_svd_sqrt, axis=0))
+    color_correlation_normalized = color_correlation_svd_sqrt / max_norm_svd_sqrt
+
+    def _linear_decorrelate_color(tensor):
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        t_permute = tensor.permute(0,2,3,1)
+        t_permute = torch.matmul(t_permute, torch.tensor(color_correlation_normalized.T).to(device))
+        tensor = t_permute.permute(0,3,1,2)
+        return tensor
+
     def inner(*args, **kwargs):
         image = image_f(*args, **kwargs)
         if decorrelate:
@@ -73,19 +88,6 @@ def to_valid_rgb(image_f, decorrelate=True):
         return torch.sigmoid(image)
     return inner
     
-def _linear_decorrelate_color(tensor):
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    t_permute = tensor.permute(0,2,3,1)
-    t_permute = torch.matmul(t_permute, torch.tensor(color_correlation_normalized.T).to(device))
-    tensor = t_permute.permute(0,3,1,2)
-    return tensor
-
-color_correlation_svd_sqrt = np.asarray([[0.26, 0.09, 0.02],
-                                         [0.27, 0.00, -0.05],
-                                         [0.27, -0.09, 0.03]]).astype("float32")
-max_norm_svd_sqrt = np.max(np.linalg.norm(color_correlation_svd_sqrt, axis=0))
-color_correlation_normalized = color_correlation_svd_sqrt / max_norm_svd_sqrt
-
 def pixel_image(shape, sd=2.):
     tensor = (torch.randn(*shape) * sd).cuda().requires_grad_(True)
     return [tensor], lambda: tensor
@@ -127,7 +129,7 @@ def fft_image(shape, sd=0.01, decay_power=1.0, resume=None):
             scaled_spectrum_t += scale * shift
         image = torch.irfft(scaled_spectrum_t, 2, normalized=True, signal_sizes=(h, w))
         image = image[:b, :ch, :h, :w]
-        image = image * contrast * 1.33 / image.std() # keep contrast, empirical
+        image = image * contrast / image.std() # keep contrast, empirical
         return image
     return [spectrum_real_imag_t], inner
 
@@ -311,7 +313,7 @@ def main():
     if a.multilang is True: del model_lang
 
     params, image_f = fft_image([1, 3, *a.size], resume=a.resume)
-    image_f = to_valid_rgb(image_f)
+    image_f = to_valid_rgb(image_f, colors = a.colors)
 
     if a.prog is True:
         lr1 = a.lrate * 2

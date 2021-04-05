@@ -49,6 +49,7 @@ def get_args():
     parser.add_argument('-o',  '--overscan', action='store_true', help='Extra padding to add seamless tiling')
     parser.add_argument(       '--keep',    default=0, type=float, help='Accumulate imagery: 0 = random, 1 = prev ema')
     parser.add_argument(       '--contrast', default=1., type=float)
+    parser.add_argument(       '--colors',  default=1., type=float)
     parser.add_argument('-d',  '--diverse', default=0, type=float, help='Endorse variety (difference between two parallel samples)')
     parser.add_argument('-x',  '--expand',  default=0, type=float, help='Push farther (endorse diff between prev/next samples)')
     parser.add_argument('-n',  '--noise',   default=0.02, type=float, help='Add noise to suppress accumulation')
@@ -117,7 +118,7 @@ def main():
         sd = 0.01
         if a.keep > 0: sd = a.keep + (1-a.keep) * sd
         params, image_f = fft_image([1, 3, *a.size], resume='init.pt', sd=sd)
-        image_f = to_valid_rgb(image_f)
+        image_f = to_valid_rgb(image_f, colors = a.colors)
 
         if a.prog is True:
             lr1 = a.lrate * 2
@@ -217,7 +218,7 @@ def main():
         params2 = read_pt(ptfiles[(px+1) % len(ptfiles)])
 
         params, image_f = fft_image([1, 3, *a.size], resume=params1, sd=1.)
-        image_f = to_valid_rgb(image_f)
+        image_f = to_valid_rgb(image_f, colors = a.colors)
 
         for i in range(vsteps):
             with torch.no_grad():
