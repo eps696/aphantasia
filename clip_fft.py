@@ -97,10 +97,8 @@ def rfft2d_freqs(h, w):
     """Computes 2D spectrum frequencies."""
     fy = np.fft.fftfreq(h)[:, None]
     # when we have an odd input dimension we need to keep one additional frequency and later cut off 1 pixel
-    if w % 2 == 1:
-        fx = np.fft.fftfreq(w)[: w // 2 + 2]
-    else:
-        fx = np.fft.fftfreq(w)[: w // 2 + 1]
+    w2 = (w+1)//2 if w%2 == 1 else w//2+1
+    fx = np.fft.fftfreq(w)[:w2]
     return np.sqrt(fx * fx + fy * fy)
 
 def fft_image(shape, sd=0.01, decay_power=1.0, resume=None):
