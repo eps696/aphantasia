@@ -17,7 +17,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 from sentence_transformers import SentenceTransformer
 import pytorch_ssim as ssim
 
-from utils import pad_up_to, basename, img_list, img_read, txt_clean
+from utils import pad_up_to, basename, img_list, img_read, plot_text, txt_clean
 try: # progress bar for notebooks 
     get_ipython().__class__.__name__
     from progress_bar import ProgressIPy as ProgressBar
@@ -50,9 +50,10 @@ def get_args():
     parser.add_argument('-o',  '--overscan', action='store_true', help='Extra padding to add seamless tiling')
     parser.add_argument(       '--contrast', default=1., type=float)
     parser.add_argument(       '--colors',  default=1., type=float)
-    parser.add_argument('-d',  '--diverse', default=0, type=float, help='Endorse variety (difference between two parallel samples)')
-    parser.add_argument('-x',  '--expand',  default=0, type=float, help='Push farther (difference between prev/next samples)')
+    parser.add_argument(       '--decay',   default=1, type=float)
+    parser.add_argument('-e',  '--enhance', default=0, type=float, help='Enhance consistency, boosts training')
     parser.add_argument('-n',  '--noise',   default=0, type=float, help='Add noise to suppress accumulation') # < 0.05 ?
+    parser.add_argument('-nt', '--notext',  default=0, type=float, help='Subtract typed text as image (avoiding graffiti?), [0..1]')
     parser.add_argument('-c',  '--sync',    default=0, type=float, help='Sync output to input image')
     parser.add_argument(       '--invert',  action='store_true', help='Invert criteria')
     a = parser.parse_args()
@@ -62,6 +63,8 @@ def get_args():
     if a.in_img is not None and a.sync > 0: a.overscan = True
     a.modsize = 288 if a.model == 'RN50x4' else 224
     if a.multilang is True: a.model = 'ViT-B/32' # sbert model is trained with ViT
+    a.diverse = -a.enhance
+    a.expand = abs(a.enhance)
     return a
 
 ### FFT from Lucent library ###  https://github.com/greentfrapp/lucent
@@ -101,7 +104,7 @@ def rfft2d_freqs(h, w):
     fx = np.fft.fftfreq(w)[:w2]
     return np.sqrt(fx * fx + fy * fy)
 
-def fft_image(shape, sd=0.01, decay_power=1.0, resume=None):
+def fft_image(shape, sd=0.01, decay_power=1.0, resume=None): # decay ~ blur
     b, ch, h, w = shape
     freqs = rfft2d_freqs(h, w)
     init_val_size = (b, ch) + freqs.shape + (2,) # 2 for imaginary and real components
@@ -208,6 +211,8 @@ def main():
             loss +=  sign * 0.5 * torch.cosine_similarity(img_enc, out_enc, dim=-1).mean()
         if a.in_txt is not None: # input text
             loss +=  sign * torch.cosine_similarity(txt_enc, out_enc, dim=-1).mean()
+            if a.notext > 0:
+                loss -= sign * a.notext * torch.cosine_similarity(txt_plot_enc, out_enc, dim=-1).mean()
         if a.in_txt0 is not None: # subtract text
             loss += -sign * torch.cosine_similarity(txt_enc0, out_enc, dim=-1).mean()
         if a.sync > 0 and a.in_img is not None and os.path.isfile(a.in_img): # image composition
@@ -264,21 +269,6 @@ def main():
     norm_in = torchvision.transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
 
     out_name = []
-    if a.in_img is not None and os.path.isfile(a.in_img):
-        if a.verbose is True: print(' ref image:', basename(a.in_img))
-        img_in = torch.from_numpy(img_read(a.in_img)/255.).unsqueeze(0).permute(0,3,1,2).cuda()
-        img_in = img_in[:,:3,:,:] # fix rgb channels
-        in_sliced = slice_imgs([img_in], a.samples, a.modsize, transform=norm_in, overscan=a.overscan)[0]
-        img_enc = model_clip.encode_image(in_sliced).detach().clone()
-        if a.sync > 0:
-            ssim_loss = ssim.SSIM(window_size = 11)
-            ssim_size = [s//8 for s in a.size]
-            img_in = F.interpolate(img_in, ssim_size).float()
-        else:
-            del img_in
-        del in_sliced; torch.cuda.empty_cache()
-        out_name.append(basename(a.in_img).replace(' ', '_'))
-
     if a.in_txt is not None:
         if a.verbose is True: print(' ref text: ', basename(a.in_txt))
         if a.translate:
@@ -287,6 +277,10 @@ def main():
             if a.verbose is True: print(' translated to:', a.in_txt) 
         txt_enc = enc_text(a.in_txt)
         out_name.append(txt_clean(a.in_txt))
+
+        if a.notext > 0:
+            txt_plot = torch.from_numpy(plot_text(a.in_txt, a.modsize)/255.).unsqueeze(0).permute(0,3,1,2).cuda()
+            txt_plot_enc = model_clip.encode_image(txt_plot).detach().clone()
 
     if a.in_txt2 is not None:
         if a.verbose is True: print(' micro text:', basename(a.in_txt2))
@@ -310,7 +304,22 @@ def main():
 
     if a.multilang is True: del model_lang
 
-    params, image_f = fft_image([1, 3, *a.size], resume=a.resume)
+    if a.in_img is not None and os.path.isfile(a.in_img):
+        if a.verbose is True: print(' ref image:', basename(a.in_img))
+        img_in = torch.from_numpy(img_read(a.in_img)/255.).unsqueeze(0).permute(0,3,1,2).cuda()
+        img_in = img_in[:,:3,:,:] # fix rgb channels
+        in_sliced = slice_imgs([img_in], a.samples, a.modsize, transform=norm_in, overscan=a.overscan)[0]
+        img_enc = model_clip.encode_image(in_sliced).detach().clone()
+        if a.sync > 0:
+            ssim_loss = ssim.SSIM(window_size = 11)
+            ssim_size = [s//8 for s in a.size]
+            img_in = F.interpolate(img_in, ssim_size).float()
+        else:
+            del img_in
+        del in_sliced; torch.cuda.empty_cache()
+        out_name.append(basename(a.in_img).replace(' ', '_'))
+
+    params, image_f = fft_image([1, 3, *a.size], resume=a.resume, decay_power=a.decay)
     image_f = to_valid_rgb(image_f, colors = a.colors)
 
     if a.prog is True:

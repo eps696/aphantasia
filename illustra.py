@@ -16,7 +16,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 from sentence_transformers import SentenceTransformer
 
 from clip_fft import to_valid_rgb, fft_image, slice_imgs, checkout, cvshow
-from utils import pad_up_to, basename, file_list, img_list, img_read, txt_clean
+from utils import pad_up_to, basename, file_list, img_list, img_read, txt_clean, plot_text
 try: # progress bar for notebooks 
     get_ipython().__class__.__name__
     from progress_bar import ProgressIPy as ProgressBar
@@ -50,20 +50,30 @@ def get_args():
     parser.add_argument(       '--keep',    default=0, type=float, help='Accumulate imagery: 0 = random, 1 = prev ema')
     parser.add_argument(       '--contrast', default=1., type=float)
     parser.add_argument(       '--colors',  default=1., type=float)
-    parser.add_argument('-d',  '--diverse', default=0, type=float, help='Endorse variety (difference between two parallel samples)')
-    parser.add_argument('-x',  '--expand',  default=0, type=float, help='Push farther (endorse diff between prev/next samples)')
+    parser.add_argument(       '--decay',   default=1, type=float)
+    parser.add_argument('-e',  '--enhance', default=0, type=float, help='Enhance consistency, boosts training')
     parser.add_argument('-n',  '--noise',   default=0.02, type=float, help='Add noise to suppress accumulation')
+    parser.add_argument('-nt', '--notext',  default=0, type=float, help='Subtract typed text as image (avoiding graffiti?), [0..1]') # 0.15
     a = parser.parse_args()
 
     if a.size is not None: a.size = [int(s) for s in a.size.split('-')][::-1]
     if len(a.size)==1: a.size = a.size * 2
     a.modsize = 288 if a.model == 'RN50x4' else 224
     if a.multilang is True: a.model = 'ViT-B/32' # sbert model is trained with ViT
+    a.diverse = -a.enhance
+    a.expand = abs(a.enhance)
     return a
 
 def ema(base, next, step):
     scale_ma = 1. / (step + 1)
     return next * scale_ma + base * (1.- scale_ma)
+
+def load_params(file):
+    if not os.path.isfile(file):
+        print(' Snapshot not found:', file); exit()
+    params = torch.load(file)
+    if isinstance(params, list): params = params[0]
+    return params.detach().clone()
 
 def main():
     a = get_args()
@@ -103,9 +113,9 @@ def main():
     params_ema = 0.
     if a.resume is not None and os.path.isfile(a.resume):
         if a.verbose is True: print(' resuming from', a.resume)
-        params, _ = fft_image([1, 3, *a.size], resume = a.resume, sd=1.)
+        params_start = load_params(a.resume).cuda()
         if a.keep > 0:
-            params_ema = params[0].detach().clone()
+            params_ema = params_start[0].detach().clone()
     else:
         a.resume = 'init.pt'
 
@@ -117,7 +127,7 @@ def main():
 
         sd = 0.01
         if a.keep > 0: sd = a.keep + (1-a.keep) * sd
-        params, image_f = fft_image([1, 3, *a.size], resume='init.pt', sd=sd)
+        params, image_f = fft_image([1, 3, *a.size], resume='init.pt', sd=sd, decay_power=a.decay)
         image_f = to_valid_rgb(image_f, colors = a.colors)
 
         if a.prog is True:
@@ -138,6 +148,10 @@ def main():
             del model_lang
         else:
             txt_enc = model_clip.encode_text(clip.tokenize(txt).cuda()).detach().clone()
+        if a.notext > 0:
+            txt_plot = torch.from_numpy(plot_text(txt, a.modsize)/255.).unsqueeze(0).permute(0,3,1,2).cuda()
+            txt_plot_enc = model_clip.encode_image(txt_plot).detach().clone()
+        else: txt_plot_enc = None
 
         out_name = '%03d-%s' % (num+1, txt_clean(txt))
         out_name += '-%s' % a.model if 'RN' in a.model.upper() else ''
@@ -154,6 +168,8 @@ def main():
             imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.overscan, micro=None)
             out_enc = model_clip.encode_image(imgs_sliced[-1])
             loss -= torch.cosine_similarity(txt_enc, out_enc, dim=-1).mean()
+            if a.notext > 0:
+                loss += a.notext * torch.cosine_similarity(txt_plot_enc, out_enc, dim=-1).mean()
             if a.diverse != 0:
                 imgs_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, norm_in, a.overscan, micro=None)
                 out_enc2 = model_clip.encode_image(imgs_sliced[-1])
@@ -217,7 +233,7 @@ def main():
         params1 = read_pt(ptfiles[px])
         params2 = read_pt(ptfiles[(px+1) % len(ptfiles)])
 
-        params, image_f = fft_image([1, 3, *a.size], resume=params1, sd=1.)
+        params, image_f = fft_image([1, 3, *a.size], resume=params1, sd=1., decay_power=a.decay)
         image_f = to_valid_rgb(image_f, colors = a.colors)
 
         for i in range(vsteps):
