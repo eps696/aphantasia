@@ -2,9 +2,21 @@
 import os
 from imageio import imread, imsave
 import numpy as np
+import matplotlib.pyplot as plt
 
 import torch
 import torch.nn.functional as F
+
+def plot_text(txt, size=224):
+    fig = plt.figure(figsize=(1,1), dpi=size)
+    fontsize = size//len(txt) if len(txt) < 15 else 8
+    plt.text(0.5, 0.5, txt, fontsize=fontsize, ha='center', va='center', wrap=True)
+    plt.axis('off')
+    fig.tight_layout(pad=0)
+    fig.canvas.draw()
+    img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    return img
 
 def txt_clean(txt):
     return txt.translate(str.maketrans(dict.fromkeys(list("\n',.вЂ”|!?/:;\\"), ""))).replace(' ', '_').replace('"', '')
