@@ -82,6 +82,16 @@ Setting it higher starts each generation closer to the average of previous runs,
 python interpol.py -i mydir --length 155
 ```
 
+## Other generators
+
+* VQGAN from [Taming Transformers](https://github.com/CompVis/taming-transformers)  
+Limited resolution (~800x600 max on Colab), but very nice colourful pictures, one of the best methods available.  
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/eps696/aphantasia/blob/master/CLIP_VQGAN.ipynb) 
+
+* SIREN + [Fourier feature modulation](https://github.com/tancik/fourier-feature-networks)  
+One of the first methods, not so interesting these days.  
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1L14q4To5rMK8q2E6whOibQBnPnVbRJ_7)  
+
 ## Credits
 
 [CLIP], [the paper]  
@@ -95,6 +105,7 @@ Thanks to [Ryan Murdock], [Jonathan Fly], [Hannu Toyryla], [@eduwatch2], [torrid
 [SBERT]: <https://sbert.net>
 [Lucent]: <https://github.com/greentfrapp/lucent>
 [SSIM]: <https://github.com/Po-Hsun-Su/pytorch-ssim>
+[Taming Transformers]: <https://github.com/CompVis/taming-transformers>
 [Ryan Murdock]: <https://twitter.com/advadnoun>
 [Jonathan Fly]: <https://twitter.com/jonathanfly>
 [Hannu Toyryla]: <https://twitter.com/htoyryla>
