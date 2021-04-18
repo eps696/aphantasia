@@ -154,13 +154,17 @@ def checkout(img, fname=None, verbose=False):
         img = np.clip(img*255, 0, 255).astype(np.uint8)
         imsave(fname, img)
 
-def slice_imgs(imgs, count, size=224, transform=None, overscan=False, micro=None):
+def slice_imgs(imgs, count, size=224, transform=None, overscan=False, micro=None, uniform=True):
     def map(x, a, b):
         return x * (b-a) + a
 
     rnd_size = torch.rand(count)
-    rnd_offx = torch.rand(count)
-    rnd_offy = torch.rand(count)
+    if uniform is True or overscan is True:
+        rnd_offx = torch.rand(count)
+        rnd_offy = torch.rand(count)
+    else: # normal around center
+        rnd_offx = torch.clip(torch.randn(count) * 0.2 + 0.5, 0., 1.)
+        rnd_offy = torch.clip(torch.randn(count) * 0.2 + 0.5, 0., 1.)
     
     sz = [img.shape[2:] for img in imgs]
     sz_min = [torch.min(torch.tensor(s)) for s in sz]
