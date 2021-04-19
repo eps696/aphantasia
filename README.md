@@ -38,7 +38,7 @@ python clip_fft.py -t "the text" --size 1280-720
 ```
 * Reproduce an image:
 ```
-python clip_fft.py -i theimage.jpg --sync 0.5
+python clip_fft.py -i theimage.jpg --sync 0.2
 ```
 If `--sync X` argument > 0, [SSIM] loss is added to keep the composition similar to the original image. 
 
