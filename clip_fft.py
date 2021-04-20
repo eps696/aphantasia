@@ -154,7 +154,7 @@ def checkout(img, fname=None, verbose=False):
         img = np.clip(img*255, 0, 255).astype(np.uint8)
         imsave(fname, img)
 
-def slice_imgs(imgs, count, size=224, transform=None, overscan=False, micro=None, uniform=True):
+def slice_imgs(imgs, count, size=224, transform=None, overscan=False, micro=None, uniform=False):
     def map(x, a, b):
         return x * (b-a) + a
 
@@ -177,11 +177,11 @@ def slice_imgs(imgs, count, size=224, transform=None, overscan=False, micro=None
         cuts = []
         for c in range(count):
             if micro is True: # both scales, micro mode
-                csize = map(rnd_size[c], 64, max(size, 0.25*sz_min[i])).int()
+                csize = map(rnd_size[c], size//4, max(size, 0.25*sz_min[i])).int()
             elif micro is False: # both scales, macro mode
-                csize = map(rnd_size[c], 0.5*sz_min[i], 0.98*sz_min[i]).int()
+                csize = map(rnd_size[c], 0.5*sz_min[i], sz_min[i]).int()
             else: # single scale
-                csize = map(rnd_size[c], 112, 0.98*sz_min[i]).int()
+                csize = map(rnd_size[c], size, sz_min[i]).int()
             offsetx = map(rnd_offx[c], 0, sz[i][1] - csize).int()
             offsety = map(rnd_offy[c], 0, sz[i][0] - csize).int()
             cut = img[:, :, offsety:offsety + csize, offsetx:offsetx + csize]
