@@ -94,8 +94,8 @@ One of the first methods, not so interesting these days.
 
 ## Credits
 
-[CLIP], [the paper]  
-Copyright (c) 2021 OpenAI
+Based on [CLIP] model by OpenAI, [the paper]  
+Used FFT encoding from [Lucent] library
 
 Thanks to [Ryan Murdock], [Jonathan Fly], [Hannu Toyryla], [@eduwatch2], [torridgristle] for ideas.
 
