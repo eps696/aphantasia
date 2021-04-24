@@ -220,7 +220,8 @@ def main():
         if a.in_txt0 is not None: # subtract text
             loss += -sign * torch.cosine_similarity(txt_enc0, out_enc, dim=-1).mean()
         if a.sync > 0 and a.in_img is not None and os.path.isfile(a.in_img): # image composition
-            loss += a.sync * sim_loss(F.interpolate(img_out, sim_size).float(), img_in).squeeze()
+            prog_sync = (a.steps // a.fstep - i) / (a.steps // a.fstep)
+            loss += prog_sync * a.sync * sim_loss(F.interpolate(img_out, sim_size).float(), img_in, normalize=True).squeeze()
         if a.in_txt2 is not None: # input text for micro details
             imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.overscan, micro=True)
             out_enc2 = model_clip.encode_image(imgs_sliced[-1])
@@ -247,6 +248,8 @@ def main():
         if i % a.fstep == 0:
             with torch.no_grad():
                 img = image_f(contrast=a.contrast).cpu().numpy()[0]
+            if a.sync > 0 and a.in_img is not None:
+                img = img **1.5 # empirical tone mapping
             checkout(img, os.path.join(tempdir, '%04d.jpg' % (i // a.fstep)), verbose=a.verbose)
             pbar.upd()
 
@@ -317,7 +320,7 @@ def main():
         in_sliced = slice_imgs([img_in], a.samples, a.modsize, transform=norm_in, overscan=a.overscan)[0]
         img_enc = model_clip.encode_image(in_sliced).detach().clone()
         if a.sync > 0:
-            sim_loss = lpips.LPIPS(net='vgg').cuda()
+            sim_loss = lpips.LPIPS(net='vgg', verbose=False).cuda()
             sim_size = [s//2 for s in a.size]
             img_in = F.interpolate(img_in, sim_size).float()
         else:
