@@ -8,3 +8,4 @@ googletrans==3.1.0a0
 # torchvision~=0.8.2
 opencv-python
 sentence_transformers
+lpips

@@ -15,7 +15,7 @@ import torch.nn.functional as F
 import clip
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 from sentence_transformers import SentenceTransformer
-import pytorch_ssim as ssim
+import lpips
 
 from utils import pad_up_to, basename, img_list, img_read, plot_text, txt_clean
 try: # progress bar for notebooks 
@@ -220,7 +220,7 @@ def main():
         if a.in_txt0 is not None: # subtract text
             loss += -sign * torch.cosine_similarity(txt_enc0, out_enc, dim=-1).mean()
         if a.sync > 0 and a.in_img is not None and os.path.isfile(a.in_img): # image composition
-            loss -= a.sync * ssim_loss(F.interpolate(img_out, ssim_size).float(), img_in)
+            loss += a.sync * sim_loss(F.interpolate(img_out, sim_size).float(), img_in).squeeze()
         if a.in_txt2 is not None: # input text for micro details
             imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.overscan, micro=True)
             out_enc2 = model_clip.encode_image(imgs_sliced[-1])
@@ -269,6 +269,8 @@ def main():
     
     if a.diverse != 0:
         a.samples = int(a.samples * 0.5)
+    if a.sync > 0:
+        a.samples = int(a.samples * 0.5)
             
     norm_in = torchvision.transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
 
@@ -315,9 +317,9 @@ def main():
         in_sliced = slice_imgs([img_in], a.samples, a.modsize, transform=norm_in, overscan=a.overscan)[0]
         img_enc = model_clip.encode_image(in_sliced).detach().clone()
         if a.sync > 0:
-            ssim_loss = ssim.SSIM(window_size = 11)
-            ssim_size = [s//8 for s in a.size]
-            img_in = F.interpolate(img_in, ssim_size).float()
+            sim_loss = lpips.LPIPS(net='vgg').cuda()
+            sim_size = [s//2 for s in a.size]
+            img_in = F.interpolate(img_in, sim_size).float()
         else:
             del img_in
         del in_sliced; torch.cuda.empty_cache()
