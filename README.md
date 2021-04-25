@@ -1,6 +1,6 @@
 # Aphantasia
 
-<p align='center'><img src='_out/Aphantasia.jpg' /></p>
+<p align='center'><img src='_out/Aphantasia2.jpg' /></p>
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/eps696/aphantasia/blob/master/Aphantasia.ipynb)
 
