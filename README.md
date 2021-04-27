@@ -51,6 +51,7 @@ python clip_fft.py -t "macro figures" -t2 "micro details" -t0 "avoid this" --siz
 ```
 * Other options:  
 `--model M` selects one of the released CLIP visual models: `ViT-B/32` (default), `RN50`, `RN50x4`, `RN101`.  
+`--align XX` option is about composition (or sampling distribution, to be more precise): `uniform` is maybe the most adequate; `overscan` can make semi-seamless tileable textures.  
 `--overscan` mode processes double-padded image to produce more uniform (and probably seamlessly tileable) textures. Omit it, if you need more centered composition.  
 `--steps N` sets iterations count. 50-100 is enough for a starter; 500-1000 would elaborate it more thoroughly.  
 `--samples N` sets amount of the image cuts (samples), processed at one step. With more samples you can set fewer iterations for similar result (and vice versa). 200/200 is a good guess. NB: GPU memory is mostly eaten by this count (not resolution)!  
@@ -88,10 +89,12 @@ python interpol.py -i mydir --length 155
 * VQGAN from [Taming Transformers](https://github.com/CompVis/taming-transformers)  
 Limited resolution (~800x600 max on Colab), but good coloring with fine details, one of the best methods available.  
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/eps696/aphantasia/blob/master/CLIP_VQGAN.ipynb) 
+<p><img src='_out/some_cute_image-VQGAN.jpg' /></p>
 
 * SIREN + [Fourier feature modulation](https://github.com/tancik/fourier-feature-networks)  
 One of the first methods, not so interesting these days.  
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1L14q4To5rMK8q2E6whOibQBnPnVbRJ_7)  
+<p><img src='_out/some_cute_image-SIREN.jpg' /></p>
 
 ## Credits
 
@@ -99,6 +102,8 @@ Based on [CLIP] model by OpenAI, [the paper]
 Used FFT encoding from [Lucent] library
 
 Thanks to [Ryan Murdock], [Jonathan Fly], [Hannu Toyryla], [@eduwatch2], [torridgristle] for ideas.
+
+<p align='center'><img src='_out/some_cute_image-FFT.jpg' /></p>
 
 [artwork]: <https://vimeo.com/518360242>
 [Aphantasia]: <https://en.wikipedia.org/wiki/Aphantasia>
