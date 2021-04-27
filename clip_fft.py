@@ -51,6 +51,7 @@ def get_args():
     parser.add_argument(       '--contrast', default=1., type=float)
     parser.add_argument(       '--colors',  default=1., type=float)
     parser.add_argument(       '--decay',   default=1, type=float)
+    parser.add_argument('-mm', '--macro',   default=0, type=float, help='Endorse macro forms 0..1 ')
     parser.add_argument('-e',  '--enhance', default=0, type=float, help='Enhance consistency, boosts training')
     parser.add_argument('-n',  '--noise',   default=0, type=float, help='Add noise to suppress accumulation') # < 0.05 ?
     parser.add_argument('-nt', '--notext',  default=0, type=float, help='Subtract typed text as image (avoiding graffiti?), [0..1]')
@@ -154,7 +155,7 @@ def checkout(img, fname=None, verbose=False):
         img = np.clip(img*255, 0, 255).astype(np.uint8)
         imsave(fname, img)
 
-def slice_imgs(imgs, count, size=224, transform=None, overscan=False, micro=None, uniform=False):
+def slice_imgs(imgs, count, size=224, transform=None, overscan=False, micro=1., uniform=False):
     def map(x, a, b):
         return x * (b-a) + a
 
@@ -167,7 +168,7 @@ def slice_imgs(imgs, count, size=224, transform=None, overscan=False, micro=None
         rnd_offy = torch.clip(torch.randn(count) * 0.2 + 0.5, 0., 1.)
     
     sz = [img.shape[2:] for img in imgs]
-    sz_min = [torch.min(torch.tensor(s)) for s in sz]
+    sz_max = [torch.min(torch.tensor(s)) for s in sz]
     if overscan is True:
         sz = [[2*s[0], 2*s[1]] for s in list(sz)]
         imgs = [pad_up_to(imgs[i], sz[i], type='centr') for i in range(len(imgs))]
@@ -175,13 +176,15 @@ def slice_imgs(imgs, count, size=224, transform=None, overscan=False, micro=None
     sliced = []
     for i, img in enumerate(imgs):
         cuts = []
+        sz_max_i = max(size, 0.25*sz_max[i]) if micro is True else sz_max[i]
+        if micro is True: # both scales, micro mode
+            sz_min_i = size//4
+        elif micro is False: # both scales, macro mode
+            sz_min_i = 0.5*sz_max[i]
+        else: # single scale
+            sz_min_i = size if torch.rand(1) < micro else 0.9*sz_max[i]
         for c in range(count):
-            if micro is True: # both scales, micro mode
-                csize = map(rnd_size[c], size//4, max(size, 0.25*sz_min[i])).int()
-            elif micro is False: # both scales, macro mode
-                csize = map(rnd_size[c], 0.5*sz_min[i], sz_min[i]).int()
-            else: # single scale
-                csize = map(rnd_size[c], size, sz_min[i]).int()
+            csize = map(rnd_size[c], sz_min_i, sz_max_i).int()
             offsetx = map(rnd_offx[c], 0, sz[i][1] - csize).int()
             offsety = map(rnd_offy[c], 0, sz[i][0] - csize).int()
             cut = img[:, :, offsety:offsety + csize, offsetx:offsetx + csize]
@@ -203,7 +206,7 @@ def main():
         noise = a.noise * torch.randn(1, 1, *params[0].shape[2:4], 1).cuda() if a.noise > 0 else None
         img_out = image_f(noise)
 
-        micro = None if a.in_txt2 is None else False
+        micro = 1-a.macro if a.in_txt2 is None else False
         imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.overscan, micro=micro)
         out_enc = model_clip.encode_image(imgs_sliced[-1])
         if a.diverse != 0:

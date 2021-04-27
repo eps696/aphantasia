@@ -60,6 +60,7 @@ python clip_fft.py -t "macro figures" -t2 "micro details" -t0 "avoid this" --siz
 `--notext X` tries to remove "graffiti" by subtracting plotted text prompt. good start is ~0.1.  
 `--noise X` adds some noise to the parameters, possibly making composition less clogged (in a degree).  
 `--lrate` controls learning rate. The range is quite wide (tested at least within 0.001 to 10).  
+`--macro X` (from 0 to 1) shifts generation to bigger forms and less disperse composition. should not be too close to 1, since the quality depends on the variety of samples.  
 `--prog` sets progressive learning rate (from 0.1x to 2x of the one, set by `lrate`). it may boost macro forms creation in some cases (more [here](https://github.com/eps696/aphantasia/issues/2)).  
 `--invert` negates the whole criteria, if you fancy checking "totally opposite".  
 `--save_pt myfile.pt` will save FFT parameters, to resume for next query with `--resume myfile.pt`.  
