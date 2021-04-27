@@ -47,7 +47,7 @@ def get_args():
     parser.add_argument(       '--lrate',   default=0.05, type=float, help='Learning rate')
     parser.add_argument('-p',  '--prog',    action='store_true', help='Enable progressive lrate growth (up to double a.lrate)')
     # tweaks
-    parser.add_argument('-o',  '--overscan', action='store_true', help='Extra padding to add seamless tiling')
+    parser.add_argument('-a',  '--align',   default='uniform', choices=['central', 'uniform', 'overscan'], help='Sampling distribution')
     parser.add_argument(       '--contrast', default=1., type=float)
     parser.add_argument(       '--colors',  default=1., type=float)
     parser.add_argument(       '--decay',   default=1, type=float)
@@ -61,7 +61,7 @@ def get_args():
 
     if a.size is not None: a.size = [int(s) for s in a.size.split('-')][::-1]
     if len(a.size)==1: a.size = a.size * 2
-    if a.in_img is not None and a.sync > 0: a.overscan = True
+    if a.in_img is not None and a.sync > 0: a.align = 'overscan'
     a.modsize = 288 if a.model == 'RN50x4' else 224
     if a.multilang is True: a.model = 'ViT-B/32' # sbert model is trained with ViT
     a.diverse = -a.enhance
@@ -155,21 +155,21 @@ def checkout(img, fname=None, verbose=False):
         img = np.clip(img*255, 0, 255).astype(np.uint8)
         imsave(fname, img)
 
-def slice_imgs(imgs, count, size=224, transform=None, overscan=False, micro=1., uniform=False):
+def slice_imgs(imgs, count, size=224, transform=None, align='uniform', micro=1.):
     def map(x, a, b):
         return x * (b-a) + a
 
     rnd_size = torch.rand(count)
-    if uniform is True or overscan is True:
-        rnd_offx = torch.rand(count)
-        rnd_offy = torch.rand(count)
-    else: # normal around center
+    if align == 'central': # normal around center
         rnd_offx = torch.clip(torch.randn(count) * 0.2 + 0.5, 0., 1.)
         rnd_offy = torch.clip(torch.randn(count) * 0.2 + 0.5, 0., 1.)
+    else: # uniform
+        rnd_offx = torch.rand(count)
+        rnd_offy = torch.rand(count)
     
     sz = [img.shape[2:] for img in imgs]
     sz_max = [torch.min(torch.tensor(s)) for s in sz]
-    if overscan is True:
+    if align == 'overscan': # add space
         sz = [[2*s[0], 2*s[1]] for s in list(sz)]
         imgs = [pad_up_to(imgs[i], sz[i], type='centr') for i in range(len(imgs))]
 
@@ -207,10 +207,10 @@ def main():
         img_out = image_f(noise)
 
         micro = 1-a.macro if a.in_txt2 is None else False
-        imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.overscan, micro=micro)
+        imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.align, micro=micro)
         out_enc = model_clip.encode_image(imgs_sliced[-1])
         if a.diverse != 0:
-            imgs_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, norm_in, a.overscan, micro=micro)
+            imgs_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, norm_in, a.align, micro=micro)
             out_enc2 = model_clip.encode_image(imgs_sliced[-1])
             loss += a.diverse * torch.cosine_similarity(out_enc, out_enc2, dim=-1).mean()
             del out_enc2; torch.cuda.empty_cache()
@@ -226,7 +226,7 @@ def main():
             prog_sync = (a.steps // a.fstep - i) / (a.steps // a.fstep)
             loss += prog_sync * a.sync * sim_loss(F.interpolate(img_out, sim_size).float(), img_in, normalize=True).squeeze()
         if a.in_txt2 is not None: # input text for micro details
-            imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.overscan, micro=True)
+            imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.align, micro=True)
             out_enc2 = model_clip.encode_image(imgs_sliced[-1])
             loss +=  sign * torch.cosine_similarity(txt_enc2, out_enc2, dim=-1).mean()
             del out_enc2; torch.cuda.empty_cache()
@@ -320,7 +320,7 @@ def main():
         if a.verbose is True: print(' ref image:', basename(a.in_img))
         img_in = torch.from_numpy(img_read(a.in_img)/255.).unsqueeze(0).permute(0,3,1,2).cuda()
         img_in = img_in[:,:3,:,:] # fix rgb channels
-        in_sliced = slice_imgs([img_in], a.samples, a.modsize, transform=norm_in, overscan=a.overscan)[0]
+        in_sliced = slice_imgs([img_in], a.samples, a.modsize, norm_in, a.align)[0]
         img_enc = model_clip.encode_image(in_sliced).detach().clone()
         if a.sync > 0:
             sim_loss = lpips.LPIPS(net='vgg', verbose=False).cuda()

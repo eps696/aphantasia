@@ -46,7 +46,7 @@ def get_args():
     parser.add_argument('-lr', '--lrate',   default=0.05, type=float, help='Learning rate')
     parser.add_argument('-p',  '--prog',    action='store_true', help='Enable progressive lrate growth (up to double a.lrate)')
     # tweaks
-    parser.add_argument('-o',  '--overscan', action='store_true', help='Extra padding to add seamless tiling')
+    parser.add_argument('-a',  '--align',   default='uniform', choices=['central', 'uniform', 'overscan'], help='Sampling distribution')
     parser.add_argument(       '--keep',    default=0, type=float, help='Accumulate imagery: 0 = random, 1 = prev ema')
     parser.add_argument(       '--contrast', default=1., type=float)
     parser.add_argument(       '--colors',  default=1., type=float)
@@ -165,13 +165,13 @@ def main():
             noise = a.noise * torch.randn(1, 1, *params[0].shape[2:4], 1).cuda() if a.noise > 0 else None
             img_out = image_f(noise)
             
-            imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.overscan, micro=None)
+            imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.align, micro=None)
             out_enc = model_clip.encode_image(imgs_sliced[-1])
             loss -= torch.cosine_similarity(txt_enc, out_enc, dim=-1).mean()
             if a.notext > 0:
                 loss += a.notext * torch.cosine_similarity(txt_plot_enc, out_enc, dim=-1).mean()
             if a.diverse != 0:
-                imgs_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, norm_in, a.overscan, micro=None)
+                imgs_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, norm_in, a.align, micro=None)
                 out_enc2 = model_clip.encode_image(imgs_sliced[-1])
                 loss += a.diverse * torch.cosine_similarity(out_enc, out_enc2, dim=-1).mean()
                 del out_enc2; torch.cuda.empty_cache()
