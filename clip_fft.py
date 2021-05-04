@@ -18,6 +18,7 @@ from sentence_transformers import SentenceTransformer
 import lpips
 
 from utils import pad_up_to, basename, img_list, img_read, plot_text, txt_clean
+import transforms
 try: # progress bar for notebooks 
     get_ipython().__class__.__name__
     from progress_bar import ProgressIPy as ProgressBar
@@ -214,10 +215,10 @@ def main():
             loss -= a.sharp * (ly+lx)
 
         micro = 1-a.macro if a.in_txt2 is None else False
-        imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.align, micro=micro)
+        imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align, micro=micro)
         out_enc = model_clip.encode_image(imgs_sliced[-1])
         if a.diverse != 0:
-            imgs_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, norm_in, a.align, micro=micro)
+            imgs_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, trform_f, a.align, micro=micro)
             out_enc2 = model_clip.encode_image(imgs_sliced[-1])
             loss += a.diverse * torch.cosine_similarity(out_enc, out_enc2, dim=-1).mean()
             del out_enc2; torch.cuda.empty_cache()
@@ -233,7 +234,7 @@ def main():
             prog_sync = (a.steps // a.fstep - i) / (a.steps // a.fstep)
             loss += prog_sync * a.sync * sim_loss(F.interpolate(img_out, sim_size).float(), img_in, normalize=True).squeeze()
         if a.in_txt2 is not None: # input text for micro details
-            imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.align, micro=True)
+            imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align, micro=True)
             out_enc2 = model_clip.encode_image(imgs_sliced[-1])
             loss +=  sign * torch.cosine_similarity(txt_enc2, out_enc2, dim=-1).mean()
             del out_enc2; torch.cuda.empty_cache()
@@ -285,12 +286,11 @@ def main():
     if a.sync > 0:
         a.samples = int(a.samples * 0.5)
             
-    # norm_in = torchvision.transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
     if a.transform is True:
-        transform_f = transform.transforms_custom  
+        trform_f = transforms.transforms_custom  
         a.samples = int(a.samples * 0.95)
     else:
-        transform_f = transform.normalize()
+        trform_f = transforms.normalize()
 
     out_name = []
     if a.in_txt is not None:
@@ -332,7 +332,7 @@ def main():
         if a.verbose is True: print(' ref image:', basename(a.in_img))
         img_in = torch.from_numpy(img_read(a.in_img)/255.).unsqueeze(0).permute(0,3,1,2).cuda()
         img_in = img_in[:,:3,:,:] # fix rgb channels
-        in_sliced = slice_imgs([img_in], a.samples, a.modsize, norm_in, a.align)[0]
+        in_sliced = slice_imgs([img_in], a.samples, a.modsize, transforms.normalize(), a.align, micro=False)[0]
         img_enc = model_clip.encode_image(in_sliced).detach().clone()
         if a.sync > 0:
             sim_loss = lpips.LPIPS(net='vgg', verbose=False).cuda()

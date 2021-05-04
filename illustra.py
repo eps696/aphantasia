@@ -17,6 +17,7 @@ from sentence_transformers import SentenceTransformer
 
 from clip_fft import to_valid_rgb, fft_image, slice_imgs, checkout, cvshow
 from utils import pad_up_to, basename, file_list, img_list, img_read, txt_clean, plot_text
+import transforms
 try: # progress bar for notebooks 
     get_ipython().__class__.__name__
     from progress_bar import ProgressIPy as ProgressBar
@@ -47,6 +48,7 @@ def get_args():
     parser.add_argument('-p',  '--prog',    action='store_true', help='Enable progressive lrate growth (up to double a.lrate)')
     # tweaks
     parser.add_argument('-a',  '--align',   default='uniform', choices=['central', 'uniform', 'overscan'], help='Sampling distribution')
+    parser.add_argument('-tf', '--transform', action='store_true', help='use augmenting transforms?')
     parser.add_argument(       '--keep',    default=0, type=float, help='Accumulate imagery: 0 = random, 1 = prev ema')
     parser.add_argument(       '--contrast', default=1., type=float)
     parser.add_argument(       '--colors',  default=1., type=float)
@@ -92,7 +94,11 @@ def main():
     if a.diverse != 0:
         a.samples = int(a.samples * 0.5)
             
-    norm_in = torchvision.transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
+    if a.transform is True:
+        trform_f = transforms.transforms_custom  
+        a.samples = int(a.samples * 0.95)
+    else:
+        trform_f = transforms.normalize()
 
     if a.in_txt0 is not None:
         if a.verbose is True: print(' subtract text:', basename(a.in_txt0))
@@ -171,13 +177,13 @@ def main():
                 ly = torch.mean(torch.abs(img_out[0,:,1:,:] - img_out[0,:,:-1,:]))
                 loss -= a.sharp * (ly+lx)
 
-            imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.align, micro=None)
+            imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align, micro=1.)
             out_enc = model_clip.encode_image(imgs_sliced[-1])
             loss -= torch.cosine_similarity(txt_enc, out_enc, dim=-1).mean()
             if a.notext > 0:
                 loss += a.notext * torch.cosine_similarity(txt_plot_enc, out_enc, dim=-1).mean()
             if a.diverse != 0:
-                imgs_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, norm_in, a.align, micro=None)
+                imgs_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, trform_f, a.align, micro=1.)
                 out_enc2 = model_clip.encode_image(imgs_sliced[-1])
                 loss += a.diverse * torch.cosine_similarity(out_enc, out_enc2, dim=-1).mean()
                 del out_enc2; torch.cuda.empty_cache()
