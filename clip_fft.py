@@ -48,9 +48,11 @@ def get_args():
     parser.add_argument('-p',  '--prog',    action='store_true', help='Enable progressive lrate growth (up to double a.lrate)')
     # tweaks
     parser.add_argument('-a',  '--align',   default='uniform', choices=['central', 'uniform', 'overscan'], help='Sampling distribution')
+    parser.add_argument('-tf', '--transform', action='store_true', help='use augmenting transforms?')
     parser.add_argument(       '--contrast', default=1., type=float)
     parser.add_argument(       '--colors',  default=1., type=float)
     parser.add_argument(       '--decay',   default=1, type=float)
+    parser.add_argument('-sh', '--sharp',   default=0, type=float)
     parser.add_argument('-mm', '--macro',   default=0, type=float, help='Endorse macro forms 0..1 ')
     parser.add_argument('-e',  '--enhance', default=0, type=float, help='Enhance consistency, boosts training')
     parser.add_argument('-n',  '--noise',   default=0, type=float, help='Add noise to suppress accumulation') # < 0.05 ?
@@ -206,6 +208,11 @@ def main():
         noise = a.noise * torch.randn(1, 1, *params[0].shape[2:4], 1).cuda() if a.noise > 0 else None
         img_out = image_f(noise)
 
+        if a.sharp != 0:
+            lx = torch.mean(torch.abs(img_out[0,:,:,1:] - img_out[0,:,:,:-1]))
+            ly = torch.mean(torch.abs(img_out[0,:,1:,:] - img_out[0,:,:-1,:]))
+            loss -= a.sharp * (ly+lx)
+
         micro = 1-a.macro if a.in_txt2 is None else False
         imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, norm_in, a.align, micro=micro)
         out_enc = model_clip.encode_image(imgs_sliced[-1])
@@ -251,8 +258,8 @@ def main():
         if i % a.fstep == 0:
             with torch.no_grad():
                 img = image_f(contrast=a.contrast).cpu().numpy()[0]
-            if a.sync > 0 and a.in_img is not None:
-                img = img **1.5 # empirical tone mapping
+            if (a.sync > 0 and a.in_img is not None) or a.sharp != 0:
+                img = img **1.3 # empirical tone mapping
             checkout(img, os.path.join(tempdir, '%04d.jpg' % (i // a.fstep)), verbose=a.verbose)
             pbar.upd()
 
@@ -278,7 +285,12 @@ def main():
     if a.sync > 0:
         a.samples = int(a.samples * 0.5)
             
-    norm_in = torchvision.transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
+    # norm_in = torchvision.transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
+    if a.transform is True:
+        transform_f = transform.transforms_custom  
+        a.samples = int(a.samples * 0.95)
+    else:
+        transform_f = transform.normalize()
 
     out_name = []
     if a.in_txt is not None:

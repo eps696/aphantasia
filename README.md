@@ -56,7 +56,8 @@ python clip_fft.py -t "macro figures" -t2 "micro details" -t0 "avoid this" --siz
 `--steps N` sets iterations count. 50-100 is enough for a starter; 500-1000 would elaborate it more thoroughly.  
 `--samples N` sets amount of the image cuts (samples), processed at one step. With more samples you can set fewer iterations for similar result (and vice versa). 200/200 is a good guess. NB: GPU memory is mostly eaten by this count (not resolution)!  
 `--fstep N` tells to save every Nth frame (useful with high iterations, default is 1).  
-`--decay X` (softness), `--colors X` (saturation) and `--contrast X` may be useful, especially for ResNet models (they tend to burn the colors). try `--decay 1.5 --colors 1.3 --contrast 1.1` to see the difference.  
+`--decay X` (compositional softness), `--sharp X` (sharpness), `--colors X` (saturation) and `--contrast X` may be useful, especially for ResNet models (they tend to burn the colors). try `--decay 1.5 --colors 1.3 --contrast 1.1` or `--decay 1.5 --colors 1.5 --contrast 0.9 --sharp 0.3` to see the difference.  
+ may be useful to increase sharpness, if the image became "myopic" after inducing `decay`. good start is ~0.3. affects other color parameters, better tweak them all together!  
 `--enhance X` boosts training consistency (of simultaneous samples) and steps progress. good start is ~0.2.  
 `--notext X` tries to remove "graffiti" by subtracting plotted text prompt. good start is ~0.1.  
 `--noise X` adds some noise to the parameters, possibly making composition less clogged (in a degree).  
