@@ -52,21 +52,22 @@ python clip_fft.py -t "macro figures" -t2 "micro details" -t0 "avoid this" --siz
 * Other options:  
 `--model M` selects one of the released CLIP visual models: `ViT-B/32` (default), `RN50`, `RN50x4`, `RN101`.  
 `--align XX` option is about composition (or sampling distribution, to be more precise): `uniform` is maybe the most adequate; `overscan` can make semi-seamless tileable textures.  
-`--overscan` mode processes double-padded image to produce more uniform (and probably seamlessly tileable) textures. Omit it, if you need more centered composition.  
-`--steps N` sets iterations count. 50-100 is enough for a starter; 500-1000 would elaborate it more thoroughly.  
+`--steps N` sets iterations count. 100-200 is enough for a starter; 500-1000 would elaborate it more thoroughly.  
 `--samples N` sets amount of the image cuts (samples), processed at one step. With more samples you can set fewer iterations for similar result (and vice versa). 200/200 is a good guess. NB: GPU memory is mostly eaten by this count (not resolution)!  
-`--fstep N` tells to save every Nth frame (useful with high iterations, default is 1).  
-`--decay X` (compositional softness), `--sharp X` (sharpness), `--colors X` (saturation) and `--contrast X` may be useful, especially for ResNet models (they tend to burn the colors). try `--decay 1.5 --colors 1.3 --contrast 1.1` or `--decay 1.5 --colors 1.5 --contrast 0.9 --sharp 0.3` to see the difference.  
- may be useful to increase sharpness, if the image became "myopic" after inducing `decay`. good start is ~0.3. affects other color parameters, better tweak them all together!  
-`--enhance X` boosts training consistency (of simultaneous samples) and steps progress. good start is ~0.2.  
-`--notext X` tries to remove "graffiti" by subtracting plotted text prompt. good start is ~0.1.  
-`--noise X` adds some noise to the parameters, possibly making composition less clogged (in a degree).  
-`--lrate` controls learning rate. The range is quite wide (tested at least within 0.001 to 10).  
-`--macro X` (from 0 to 1) shifts generation to bigger forms and less disperse composition. should not be too close to 1, since the quality depends on the variety of samples.  
-`--prog` sets progressive learning rate (from 0.1x to 2x of the one, set by `lrate`). it may boost macro forms creation in some cases (more [here](https://github.com/eps696/aphantasia/issues/2)).  
+`--decay X` (compositional softness), `--colors X` (saturation) and `--contrast X` may be useful, especially for ResNet models (they tend to burn the colors). 
+`--sharp X` may be useful to increase sharpness, if the image becomes "myopic" after inducing `decay`. good start is ~0.3. affects other color parameters, better tweak them all together! 
+try `--decay 1.5 --colors 1.3 --contrast 1.1` or `--decay 1.5 --colors 1.5 --contrast 0.9 --sharp 0.3` to see the difference.  
 `--invert` negates the whole criteria, if you fancy checking "totally opposite".  
 `--save_pt myfile.pt` will save FFT parameters, to resume for next query with `--resume myfile.pt`.  
+`--fstep N` tells to save every Nth frame (useful with high iterations, default is 1).  
 `--verbose` ('on' by default) enables some printouts and realtime image preview.  
+* Some tricks with less definite effects:
+`--enhance X` boosts training consistency (of simultaneous samples) and overall progress. good start is ~0.2.  
+`--notext X` tries to remove "graffiti" by subtracting plotted text prompt. good start is ~0.1.  
+`--noise X` adds some noise to the parameters, possibly making composition less clogged (in a degree).  
+`--macro X` (from 0 to 1) shifts generation to bigger forms and less disperse composition. should not be too close to 1, since the quality depends on the variety of samples.  
+`--prog` sets progressive learning rate (from 0.1x to 2x of the one, set by `lrate`). it may boost macro forms creation in some cases (see more [here](https://github.com/eps696/aphantasia/issues/2)).  
+`--lrate` controls learning rate. The range is quite wide (tested at least within 0.001 to 10).  
 
 ## Continuous mode 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/eps696/aphantasia/blob/master/Illustra.ipynb)
