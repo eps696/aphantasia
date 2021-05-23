@@ -55,13 +55,13 @@ python clip_fft.py -t "macro figures" -t2 "micro details" -t0 "avoid this" --siz
 `--steps N` sets iterations count. 100-200 is enough for a starter; 500-1000 would elaborate it more thoroughly.  
 `--samples N` sets amount of the image cuts (samples), processed at one step. With more samples you can set fewer iterations for similar result (and vice versa). 200/200 is a good guess. NB: GPU memory is mostly eaten by this count (not resolution)!  
 `--decay X` (compositional softness), `--colors X` (saturation) and `--contrast X` may be useful, especially for ResNet models (they tend to burn the colors). 
-`--sharp X` may be useful to increase sharpness, if the image becomes "myopic" after inducing `decay`. good start is ~0.3. affects other color parameters, better tweak them all together! 
+`--sharp X` may be useful to increase sharpness, if the image becomes "myopic" after inducing `decay`. good start is ~0.3. it affects the other color parameters, better tweak them all together! 
 try `--decay 1.5 --colors 1.3 --contrast 1.1` or `--decay 1.5 --colors 1.5 --contrast 0.9 --sharp 0.3` to see the difference.  
 `--invert` negates the whole criteria, if you fancy checking "totally opposite".  
 `--save_pt myfile.pt` will save FFT parameters, to resume for next query with `--resume myfile.pt`.  
 `--fstep N` tells to save every Nth frame (useful with high iterations, default is 1).  
 `--verbose` ('on' by default) enables some printouts and realtime image preview.  
-* Some tricks with less definite effects:
+* Some experimental tricks with less definite effects:  
 `--enhance X` boosts training consistency (of simultaneous samples) and overall progress. good start is ~0.2.  
 `--notext X` tries to remove "graffiti" by subtracting plotted text prompt. good start is ~0.1.  
 `--noise X` adds some noise to the parameters, possibly making composition less clogged (in a degree).  
