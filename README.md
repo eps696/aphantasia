@@ -107,7 +107,7 @@ Thanks to [Ryan Murdock], [Jonathan Fly], [Hannu Toyryla], [@eduwatch2], [torrid
 
 <p align='center'><img src='_out/some_cute_image-FFT.jpg' /></p>
 
-[artwork]: <https://vimeo.com/518360242>
+[artwork]: <https://computervisionart.com/pieces2021/aphantasia>
 [Aphantasia]: <https://en.wikipedia.org/wiki/Aphantasia>
 [CLIP]: <https://openai.com/blog/clip>
 [SBERT]: <https://sbert.net>
