@@ -110,3 +110,32 @@ def pad_up_to(x, size, type='centr'):
     y = tile_pad(x, padding, symm = ('symm' in type.lower()))
     return y
 
+def smoothstep(x, NN=1, xmin=0., xmax=1.):
+    N = math.ceil(NN)
+    x = np.clip((x - xmin) / (xmax - xmin), 0, 1)
+    result = 0
+    for n in range(0, N+1):
+         result += scipy.special.comb(N+n, n) * scipy.special.comb(2*N+1, N-n) * (-x)**n
+    result *= x**(N+1)
+    if NN != N: result = (x + result) / 2
+    return result
+
+def slerp(z1, z2, num_steps=None, x=None, smooth=0.5):
+    z1_norm = z1.norm()
+    z2_norm = z2.norm()
+    z2_normal = z2 * (z1_norm / z2_norm)
+    vectors = []
+    if num_steps is not None:
+        xs = [step / (num_steps - 1) for step in range(num_steps)]
+    else:
+        xs = [x]
+    if smooth > 0: xs = [smoothstep(x, smooth) for x in xs]
+    for x in xs:
+        interplain = z1 + (z2 - z1) * x
+        interp = z1 + (z2_normal - z1) * x
+        interp_norm = interp.norm()
+        if interp_norm != 0:
+            interpol_normal = interplain * (z1_norm / interp_norm)
+        vectors.append(interpol_normal)
+    return torch.cat(vectors)
+

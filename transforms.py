@@ -3,7 +3,7 @@
 
 import torch
 import torch.nn.functional as F
-from torchvision.transforms import Normalize
+from torchvision import transforms
 import numpy as np
 import kornia
 from kornia.geometry.transform import translate
@@ -72,8 +72,8 @@ def _rads2angle(angle, units):
 def normalize():
     # ImageNet normalization for torchvision models
     # see https://pytorch.org/docs/stable/torchvision/models.html
-    # normal = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    normal = Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
+    # normal = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    normal = transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
     def inner(image_t):
         return torch.stack([normal(t) for t in image_t])
     return inner
@@ -85,17 +85,16 @@ def preprocess_inceptionv1():
     return lambda x: x * 255 - 117
 
 # from lucent
-transforms_lucent = [
+transforms_lucent = compose([
     pad(12, mode="constant", constant_value=0.5),
     jitter(8),
     random_scale([1 + (i - 5) / 50.0 for i in range(11)]),
     random_rotate(list(range(-10, 11)) + 5 * [0]),
     jitter(4),
-]
-transforms_lucent = compose(transforms_lucent)
+])
 
 # from openai
-transforms_openai = [
+transforms_openai = compose([
     pad(2, mode='constant', constant_value=.5),
     jitter(4),
     jitter(4),
@@ -108,16 +107,16 @@ transforms_openai = [
     jitter(4),
     jitter(4),
     # random_scale([0.995**n for n in range(-5,80)] + [0.998**n for n in 2*list(range(20,40))]),
-    # random_rotate(list(range(-20,20))+list(range(-10,10))+list(range(-5,5))+5*[0]),
+    random_rotate(list(range(-20,20))+list(range(-10,10))+list(range(-5,5))+5*[0]),
     jitter(2),
     # crop_or_pad_to(resolution, resolution)
-]
-transforms_openai = compose(transforms_openai)
+])
 
 # my compo
-transforms_custom = [
+transforms_custom = compose([
     pad(12, mode="constant", constant_value=0.5),
+    random_rotate(list(range(-30, 30)) + 15 * [0]),
     jitter(8),
+    transforms.RandomErasing(0.1),
     normalize()
-]
-transforms_custom = compose(transforms_custom)
+])

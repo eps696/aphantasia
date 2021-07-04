@@ -15,7 +15,7 @@ import clip
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 from sentence_transformers import SentenceTransformer
 
-from clip_fft import to_valid_rgb, fft_image, slice_imgs, checkout, cvshow
+from clip_fft import to_valid_rgb, fft_image, slice_imgs, derivat, checkout, cvshow
 from utils import pad_up_to, basename, file_list, img_list, img_read, txt_clean, plot_text
 import transforms
 try: # progress bar for notebooks 
@@ -29,6 +29,8 @@ clip_models = ['ViT-B/32', 'RN50', 'RN50x4', 'RN101']
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-i',  '--in_txt',  default=None, help='Text file to process')
+    parser.add_argument('-t2', '--in_txt2', default=None, help='input text - style')
+    parser.add_argument('-t0', '--in_txt0', default=None, help='input text to subtract')
     parser.add_argument(       '--out_dir', default='_out')
     parser.add_argument('-s',  '--size',    default='1280-720', help='Output resolution')
     parser.add_argument('-r',  '--resume',  default=None, help='Path to saved FFT snapshots, to resume from')
@@ -36,7 +38,6 @@ def get_args():
     parser.add_argument(       '--fstep',   default=1, type=int, help='Saving step')
     parser.add_argument('-tr', '--translate', action='store_true', help='Translate text with Google Translate')
     parser.add_argument('-ml', '--multilang', action='store_true', help='Use SBERT multilanguage model for text')
-    parser.add_argument('-t0', '--in_txt0', default=None, help='input text to subtract')
     parser.add_argument(       '--save_pt', action='store_true', help='Save FFT snapshots for further use')
     parser.add_argument(       '--fps',     default=25, type=int)
     parser.add_argument('-v',  '--verbose', default=True, type=bool)
@@ -50,10 +51,10 @@ def get_args():
     parser.add_argument('-a',  '--align',   default='uniform', choices=['central', 'uniform', 'overscan'], help='Sampling distribution')
     parser.add_argument('-tf', '--transform', action='store_true', help='use augmenting transforms?')
     parser.add_argument(       '--keep',    default=0, type=float, help='Accumulate imagery: 0 = random, 1 = prev ema')
-    parser.add_argument(       '--contrast', default=1., type=float)
-    parser.add_argument(       '--colors',  default=1., type=float)
-    parser.add_argument(       '--decay',   default=1, type=float)
-    parser.add_argument('-sh', '--sharp',   default=0, type=float)
+    parser.add_argument(       '--contrast', default=0.9, type=float)
+    parser.add_argument(       '--colors',  default=1.5, type=float)
+    parser.add_argument(       '--decay',   default=1.5, type=float)
+    parser.add_argument('-sh', '--sharp',   default=0.2, type=float)
     parser.add_argument('-e',  '--enhance', default=0, type=float, help='Enhance consistency, boosts training')
     parser.add_argument('-n',  '--noise',   default=0.02, type=float, help='Add noise to suppress accumulation')
     parser.add_argument('-nt', '--notext',  default=0, type=float, help='Subtract typed text as image (avoiding graffiti?), [0..1]') # 0.15
@@ -82,7 +83,8 @@ def main():
     a = get_args()
 
     # Load CLIP models
-    model_clip, _ = clip.load(a.model)
+    use_jit = True if float(torch.__version__[:3]) < 1.8 else False
+    model_clip, _ = clip.load(a.model, jit=use_jit)
     if a.verbose is True: print(' using model', a.model)
     xmem = {'RN50':0.5, 'RN50x4':0.16, 'RN101':0.33}
     if 'RN' in a.model:
@@ -91,6 +93,15 @@ def main():
     workdir += '-%s' % a.model if 'RN' in a.model.upper() else ''
     os.makedirs(workdir, exist_ok=True)
 
+    def enc_text(txt):
+        if a.multilang is True:
+            model_lang = SentenceTransformer('clip-ViT-B-32-multilingual-v1').cuda()
+            emb = model_lang.encode([txt], convert_to_tensor=True, show_progress_bar=False)
+            del model_lang
+        else:
+            emb = model_clip.encode_text(clip.tokenize(txt).cuda())
+        return emb.detach().clone()
+    
     if a.diverse != 0:
         a.samples = int(a.samples * 0.5)
             
@@ -100,18 +111,22 @@ def main():
     else:
         trform_f = transforms.normalize()
 
+    if a.in_txt2 is not None:
+        if a.verbose is True: print(' style:', basename(a.in_txt2))
+        # a.samples = int(a.samples * 0.75)
+        if a.translate:
+            translator = Translator()
+            a.in_txt2 = translator.translate(a.in_txt2, dest='en').text
+            if a.verbose is True: print(' translated to:', a.in_txt2)
+        txt_enc2 = enc_text(a.in_txt2)
+
     if a.in_txt0 is not None:
         if a.verbose is True: print(' subtract text:', basename(a.in_txt0))
         if a.translate:
             translator = Translator()
             a.in_txt0 = translator.translate(a.in_txt0, dest='en').text
             if a.verbose is True: print(' translated to:', a.in_txt0) 
-        if a.multilang is True:
-            model_lang = SentenceTransformer('clip-ViT-B-32-multilingual-v1').cuda()
-            txt_enc0 = model_lang.encode([a.in_txt0], convert_to_tensor=True, show_progress_bar=False).detach().clone()
-            del model_lang
-        else:
-            txt_enc0 = model_clip.encode_text(clip.tokenize(a.in_txt0).cuda()).detach().clone()
+        txt_enc0 = enc_text(a.in_txt0)
 
     # make init
     global params_start, params_ema
@@ -144,17 +159,12 @@ def main():
             lr0 = a.lrate
         optimizer = torch.optim.Adam(params, lr0)
     
-        if a.verbose is True: print(' ref text: ', txt)
+        if a.verbose is True: print(' topic: ', txt)
         if a.translate:
             translator = Translator()
             txt = translator.translate(txt, dest='en').text
             if a.verbose is True: print(' translated to:', txt)
-        if a.multilang is True:
-            model_lang = SentenceTransformer('clip-ViT-B-32-multilingual-v1').cuda()
-            txt_enc = model_lang.encode([txt], convert_to_tensor=True, show_progress_bar=False).detach().clone()
-            del model_lang
-        else:
-            txt_enc = model_clip.encode_text(clip.tokenize(txt).cuda()).detach().clone()
+        txt_enc = enc_text(txt)
         if a.notext > 0:
             txt_plot = torch.from_numpy(plot_text(txt, a.modsize)/255.).unsqueeze(0).permute(0,3,1,2).cuda()
             txt_plot_enc = model_clip.encode_image(txt_plot).detach().clone()
@@ -168,23 +178,24 @@ def main():
         pbar = ProgressBar(a.steps // a.fstep)
         for i in range(a.steps):
             loss = 0
-
             noise = a.noise * torch.randn(1, 1, *params[0].shape[2:4], 1).cuda() if a.noise > 0 else None
             img_out = image_f(noise)
-            
-            if a.sharp != 0:
-                lx = torch.mean(torch.abs(img_out[0,:,:,1:] - img_out[0,:,:,:-1]))
-                ly = torch.mean(torch.abs(img_out[0,:,1:,:] - img_out[0,:,:-1,:]))
-                loss -= a.sharp * (ly+lx)
+            img_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align)[0]
+            out_enc = model_clip.encode_image(img_sliced)
 
-            imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align, micro=1.)
-            out_enc = model_clip.encode_image(imgs_sliced[-1])
             loss -= torch.cosine_similarity(txt_enc, out_enc, dim=-1).mean()
+            if a.in_txt2 is not None: # input text - style
+                loss -= 0.5 * torch.cosine_similarity(txt_enc2, out_enc, dim=-1).mean()
+            if a.in_txt0 is not None: # subtract text
+                loss += 0.5 * torch.cosine_similarity(txt_enc0, out_enc, dim=-1).mean()
             if a.notext > 0:
                 loss += a.notext * torch.cosine_similarity(txt_plot_enc, out_enc, dim=-1).mean()
+            if a.sharp != 0: # mode = scharr|sobel|default
+                loss -= a.sharp * derivat(img_out, mode='default')
+                # loss -= a.sharp * derivat(img_sliced, mode='scharr')
             if a.diverse != 0:
-                imgs_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, trform_f, a.align, micro=1.)
-                out_enc2 = model_clip.encode_image(imgs_sliced[-1])
+                img_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, trform_f, a.align)[0]
+                out_enc2 = model_clip.encode_image(img_sliced)
                 loss += a.diverse * torch.cosine_similarity(out_enc, out_enc2, dim=-1).mean()
                 del out_enc2; torch.cuda.empty_cache()
             if a.expand > 0:
@@ -192,9 +203,7 @@ def main():
                 if i > 0:
                     loss += a.expand * torch.cosine_similarity(out_enc, prev_enc, dim=-1).mean()
                 prev_enc = out_enc.detach().clone()
-            if a.in_txt0 is not None: # subtract text
-                loss += torch.cosine_similarity(txt_enc0, out_enc, dim=-1).mean()
-            del img_out, imgs_sliced, out_enc; torch.cuda.empty_cache()
+            del img_out, img_sliced, out_enc; torch.cuda.empty_cache()
 
             if a.prog is True:
                 lr_cur = lr0 + (i / a.steps) * (lr1 - lr0)
@@ -209,7 +218,7 @@ def main():
                 with torch.no_grad():
                     img = image_f(contrast=a.contrast).cpu().numpy()[0]
                 if a.sharp != 0:
-                    img = img **1.3 # empirical tone mapping
+                    img = img ** (1 + a.sharp) # empirical tone mapping
                 checkout(img, os.path.join(tempdir, '%04d.jpg' % (i // a.fstep)), verbose=a.verbose)
                 pbar.upd()
                 del img

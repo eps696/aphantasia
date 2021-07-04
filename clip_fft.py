@@ -7,6 +7,7 @@ import cv2
 from imageio import imsave
 import shutil
 from googletrans import Translator, constants
+from kornia.filters.sobel import spatial_gradient
 
 import torch
 import torchvision
@@ -31,7 +32,7 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-i',  '--in_img',  default=None, help='input image')
     parser.add_argument('-t',  '--in_txt',  default=None, help='input text')
-    parser.add_argument('-t2', '--in_txt2', default=None, help='input text for small details')
+    parser.add_argument('-t2', '--in_txt2', default=None, help='input text - style')
     parser.add_argument('-t0', '--in_txt0', default=None, help='input text to subtract')
     parser.add_argument(       '--out_dir', default='_out')
     parser.add_argument('-s',  '--size',    default='1280-720', help='Output resolution')
@@ -50,10 +51,10 @@ def get_args():
     # tweaks
     parser.add_argument('-a',  '--align',   default='uniform', choices=['central', 'uniform', 'overscan'], help='Sampling distribution')
     parser.add_argument('-tf', '--transform', action='store_true', help='use augmenting transforms?')
-    parser.add_argument(       '--contrast', default=1., type=float)
-    parser.add_argument(       '--colors',  default=1., type=float)
-    parser.add_argument(       '--decay',   default=1, type=float)
-    parser.add_argument('-sh', '--sharp',   default=0, type=float)
+    parser.add_argument(       '--contrast', default=0.9, type=float)
+    parser.add_argument(       '--colors',  default=1.5, type=float)
+    parser.add_argument(       '--decay',   default=1.5, type=float)
+    parser.add_argument('-sh', '--sharp',   default=0.2, type=float)
     parser.add_argument('-mm', '--macro',   default=0, type=float, help='Endorse macro forms 0..1 ')
     parser.add_argument('-e',  '--enhance', default=0, type=float, help='Enhance consistency, boosts training')
     parser.add_argument('-n',  '--noise',   default=0, type=float, help='Add noise to suppress accumulation') # < 0.05 ?
@@ -132,7 +133,12 @@ def fft_image(shape, sd=0.01, decay_power=1.0, resume=None): # decay ~ blur
         scaled_spectrum_t = scale * spectrum_real_imag_t
         if shift is not None:
             scaled_spectrum_t += scale * shift
-        image = torch.irfft(scaled_spectrum_t, 2, normalized=True, signal_sizes=(h, w))
+        if float(torch.__version__[:3]) < 1.8:
+            image = torch.irfft(scaled_spectrum_t, 2, normalized=True, signal_sizes=(h, w))
+        else:
+            if type(scaled_spectrum_t) is not torch.complex64:
+                scaled_spectrum_t = torch.view_as_complex(scaled_spectrum_t)
+            image = torch.fft.irfftn(scaled_spectrum_t, s=(h, w), norm='ortho')
         image = image[:b, :ch, :h, :w]
         image = image * contrast / image.std() # keep contrast, empirical
         return image
@@ -179,13 +185,8 @@ def slice_imgs(imgs, count, size=224, transform=None, align='uniform', micro=1.)
     sliced = []
     for i, img in enumerate(imgs):
         cuts = []
-        sz_max_i = max(size, 0.25*sz_max[i]) if micro is True else sz_max[i]
-        if micro is True: # both scales, micro mode
-            sz_min_i = size//4
-        elif micro is False: # both scales, macro mode
-            sz_min_i = 0.5*sz_max[i]
-        else: # single scale
-            sz_min_i = size if torch.rand(1) < micro else 0.9*sz_max[i]
+        sz_max_i = sz_max[i]
+        sz_min_i = size if torch.rand(1) < micro else 0.8*sz_max[i]
         for c in range(count):
             csize = map(rnd_size[c], sz_min_i, sz_max_i).int()
             offsetx = map(rnd_offx[c], 0, sz[i][1] - csize).int()
@@ -198,6 +199,20 @@ def slice_imgs(imgs, count, size=224, transform=None, align='uniform', micro=1.)
         sliced.append(torch.cat(cuts, 0))
     return sliced
 
+def derivat(img, mode='sobel'):
+    if mode == 'scharr': 
+        # https://en.wikipedia.org/wiki/Sobel_operator#Alternative_operators
+        k_scharr = torch.Tensor([[[-0.183,0.,0.183], [-0.634,0.,0.634], [-0.183,0.,0.183]], [[-0.183,-0.634,-0.183], [0.,0.,0.], [0.183,0.634,0.183]]])
+        k_scharr = k_scharr.unsqueeze(1).tile((1,3,1,1)).cuda()
+        return 0.2 * torch.mean(torch.abs(F.conv2d(img, k_scharr)))
+    elif mode == 'sobel':
+        # https://kornia.readthedocs.io/en/latest/filters.html#edge-detection
+        return torch.mean(torch.abs(spatial_gradient(img)))
+    else: # trivial hack
+        dx = torch.mean(torch.abs(img[:,:,:,1:] - img[:,:,:,:-1]))
+        dy = torch.mean(torch.abs(img[:,:,1:,:] - img[:,:,:-1,:]))
+        return 0.5 * (dx+dy)
+
 
 def main():
     a = get_args()
@@ -208,35 +223,29 @@ def main():
         
         noise = a.noise * torch.randn(1, 1, *params[0].shape[2:4], 1).cuda() if a.noise > 0 else None
         img_out = image_f(noise)
+        img_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align, micro=1-a.macro)[0]
+        out_enc = model_clip.encode_image(img_sliced)
 
-        if a.sharp != 0:
-            lx = torch.mean(torch.abs(img_out[0,:,:,1:] - img_out[0,:,:,:-1]))
-            ly = torch.mean(torch.abs(img_out[0,:,1:,:] - img_out[0,:,:-1,:]))
-            loss -= a.sharp * (ly+lx)
-
-        micro = 1-a.macro if a.in_txt2 is None else False
-        imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align, micro=micro)
-        out_enc = model_clip.encode_image(imgs_sliced[-1])
-        if a.diverse != 0:
-            imgs_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, trform_f, a.align, micro=micro)
-            out_enc2 = model_clip.encode_image(imgs_sliced[-1])
-            loss += a.diverse * torch.cosine_similarity(out_enc, out_enc2, dim=-1).mean()
-            del out_enc2; torch.cuda.empty_cache()
-        if a.in_img is not None and os.path.isfile(a.in_img): # input image
-            loss +=  sign * 0.5 * torch.cosine_similarity(img_enc, out_enc, dim=-1).mean()
         if a.in_txt is not None: # input text
             loss +=  sign * torch.cosine_similarity(txt_enc, out_enc, dim=-1).mean()
             if a.notext > 0:
                 loss -= sign * a.notext * torch.cosine_similarity(txt_plot_enc, out_enc, dim=-1).mean()
+        if a.in_txt2 is not None: # input text - style
+            loss +=  sign * 0.5 * torch.cosine_similarity(txt_enc2, out_enc, dim=-1).mean()
         if a.in_txt0 is not None: # subtract text
             loss += -sign * torch.cosine_similarity(txt_enc0, out_enc, dim=-1).mean()
+        if a.in_img is not None and os.path.isfile(a.in_img): # input image
+            loss +=  sign * 0.5 * torch.cosine_similarity(img_enc, out_enc, dim=-1).mean()
         if a.sync > 0 and a.in_img is not None and os.path.isfile(a.in_img): # image composition
             prog_sync = (a.steps // a.fstep - i) / (a.steps // a.fstep)
             loss += prog_sync * a.sync * sim_loss(F.interpolate(img_out, sim_size).float(), img_in, normalize=True).squeeze()
-        if a.in_txt2 is not None: # input text for micro details
-            imgs_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align, micro=True)
-            out_enc2 = model_clip.encode_image(imgs_sliced[-1])
-            loss +=  sign * torch.cosine_similarity(txt_enc2, out_enc2, dim=-1).mean()
+        if a.sharp != 0: # mode = scharr|sobel|default
+            loss -= a.sharp * derivat(img_out, mode='default')
+            # loss -= a.sharp * derivat(img_sliced, mode='scharr')
+        if a.diverse != 0:
+            img_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, trform_f, a.align, micro=1-a.macro)[0]
+            out_enc2 = model_clip.encode_image(img_sliced)
+            loss += a.diverse * torch.cosine_similarity(out_enc, out_enc2, dim=-1).mean()
             del out_enc2; torch.cuda.empty_cache()
         if a.expand > 0:
             global prev_enc
@@ -244,7 +253,7 @@ def main():
                 loss += a.expand * torch.cosine_similarity(out_enc, prev_enc, dim=-1).mean()
             prev_enc = out_enc.detach()
 
-        del img_out, imgs_sliced, out_enc; torch.cuda.empty_cache()
+        del img_out, img_sliced, out_enc; torch.cuda.empty_cache()
         assert not isinstance(loss, int), ' Loss not defined, check the inputs'
         
         if a.prog is True:
@@ -259,13 +268,17 @@ def main():
         if i % a.fstep == 0:
             with torch.no_grad():
                 img = image_f(contrast=a.contrast).cpu().numpy()[0]
-            if (a.sync > 0 and a.in_img is not None) or a.sharp != 0:
-                img = img **1.3 # empirical tone mapping
+            # empirical tone mapping
+            if (a.sync > 0 and a.in_img is not None):
+                img = img **1.3
+            elif a.sharp != 0:
+                img = img ** (1 + a.sharp/2.)
             checkout(img, os.path.join(tempdir, '%04d.jpg' % (i // a.fstep)), verbose=a.verbose)
             pbar.upd()
 
     # Load CLIP models
-    model_clip, _ = clip.load(a.model)
+    use_jit = True if float(torch.__version__[:3]) < 1.8 else False
+    model_clip, _ = clip.load(a.model, jit=use_jit)
     if a.verbose is True: print(' using model', a.model)
     xmem = {'RN50':0.5, 'RN50x4':0.16, 'RN101':0.33}
     if 'RN' in a.model:
@@ -294,7 +307,7 @@ def main():
 
     out_name = []
     if a.in_txt is not None:
-        if a.verbose is True: print(' ref text: ', basename(a.in_txt))
+        if a.verbose is True: print(' topic text: ', basename(a.in_txt))
         if a.translate:
             translator = Translator()
             a.in_txt = translator.translate(a.in_txt, dest='en').text
@@ -307,7 +320,7 @@ def main():
             txt_plot_enc = model_clip.encode_image(txt_plot).detach().clone()
 
     if a.in_txt2 is not None:
-        if a.verbose is True: print(' micro text:', basename(a.in_txt2))
+        if a.verbose is True: print(' style text:', basename(a.in_txt2))
         a.samples = int(a.samples * 0.75)
         if a.translate:
             translator = Translator()
@@ -332,7 +345,7 @@ def main():
         if a.verbose is True: print(' ref image:', basename(a.in_img))
         img_in = torch.from_numpy(img_read(a.in_img)/255.).unsqueeze(0).permute(0,3,1,2).cuda()
         img_in = img_in[:,:3,:,:] # fix rgb channels
-        in_sliced = slice_imgs([img_in], a.samples, a.modsize, transforms.normalize(), a.align, micro=False)[0]
+        in_sliced = slice_imgs([img_in], a.samples, a.modsize, transforms.normalize(), a.align, micro=1.)[0]
         img_enc = model_clip.encode_image(in_sliced).detach().clone()
         if a.sync > 0:
             sim_loss = lpips.LPIPS(net='vgg', verbose=False).cuda()
