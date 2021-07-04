@@ -54,7 +54,7 @@ def get_args():
     parser.add_argument(       '--contrast', default=0.9, type=float)
     parser.add_argument(       '--colors',  default=1.5, type=float)
     parser.add_argument(       '--decay',   default=1.5, type=float)
-    parser.add_argument('-sh', '--sharp',   default=0.2, type=float)
+    parser.add_argument('-sh', '--sharp',   default=0.3, type=float)
     parser.add_argument('-e',  '--enhance', default=0, type=float, help='Enhance consistency, boosts training')
     parser.add_argument('-n',  '--noise',   default=0.02, type=float, help='Add noise to suppress accumulation')
     parser.add_argument('-nt', '--notext',  default=0, type=float, help='Subtract typed text as image (avoiding graffiti?), [0..1]') # 0.15
@@ -191,7 +191,7 @@ def main():
             if a.notext > 0:
                 loss += a.notext * torch.cosine_similarity(txt_plot_enc, out_enc, dim=-1).mean()
             if a.sharp != 0: # mode = scharr|sobel|default
-                loss -= a.sharp * derivat(img_out, mode='default')
+                loss -= a.sharp * derivat(img_out, mode='sobel')
                 # loss -= a.sharp * derivat(img_sliced, mode='scharr')
             if a.diverse != 0:
                 img_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, trform_f, a.align)[0]
@@ -218,7 +218,7 @@ def main():
                 with torch.no_grad():
                     img = image_f(contrast=a.contrast).cpu().numpy()[0]
                 if a.sharp != 0:
-                    img = img ** (1 + a.sharp) # empirical tone mapping
+                    img = img ** (1 + a.sharp/2.) # empirical tone mapping
                 checkout(img, os.path.join(tempdir, '%04d.jpg' % (i // a.fstep)), verbose=a.verbose)
                 pbar.upd()
                 del img

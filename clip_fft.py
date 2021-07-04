@@ -54,7 +54,7 @@ def get_args():
     parser.add_argument(       '--contrast', default=0.9, type=float)
     parser.add_argument(       '--colors',  default=1.5, type=float)
     parser.add_argument(       '--decay',   default=1.5, type=float)
-    parser.add_argument('-sh', '--sharp',   default=0.2, type=float)
+    parser.add_argument('-sh', '--sharp',   default=0.3, type=float)
     parser.add_argument('-mm', '--macro',   default=0, type=float, help='Endorse macro forms 0..1 ')
     parser.add_argument('-e',  '--enhance', default=0, type=float, help='Enhance consistency, boosts training')
     parser.add_argument('-n',  '--noise',   default=0, type=float, help='Add noise to suppress accumulation') # < 0.05 ?
@@ -240,7 +240,7 @@ def main():
             prog_sync = (a.steps // a.fstep - i) / (a.steps // a.fstep)
             loss += prog_sync * a.sync * sim_loss(F.interpolate(img_out, sim_size).float(), img_in, normalize=True).squeeze()
         if a.sharp != 0: # mode = scharr|sobel|default
-            loss -= a.sharp * derivat(img_out, mode='default')
+            loss -= a.sharp * derivat(img_out, mode='sobel')
             # loss -= a.sharp * derivat(img_sliced, mode='scharr')
         if a.diverse != 0:
             img_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, trform_f, a.align, micro=1-a.macro)[0]
