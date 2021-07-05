@@ -114,7 +114,7 @@ transforms_openai = compose([
 
 # my compo
 transforms_custom = compose([
-    pad(12, mode="constant", constant_value=0.5),
+    pad(4, mode="constant", constant_value=0.5),
     random_rotate(list(range(-30, 30)) + 15 * [0]),
     jitter(8),
     transforms.RandomErasing(0.1),
