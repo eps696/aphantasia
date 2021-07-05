@@ -221,7 +221,7 @@ def main():
     def train(i):
         loss = 0
         
-        noise = a.noise * torch.randn(1, 1, *params[0].shape[2:4], 1).cuda() if a.noise > 0 else None
+        noise = a.noise * torch.rand(1, 1, *params[0].shape[2:4], 1).cuda() if a.noise > 0 else None
         img_out = image_f(noise)
         img_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align, micro=1-a.macro)[0]
         out_enc = model_clip.encode_image(img_sliced)
