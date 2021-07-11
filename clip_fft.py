@@ -144,6 +144,48 @@ def fft_image(shape, sd=0.01, decay_power=1.0, resume=None): # decay ~ blur
         return image
     return [spectrum_real_imag_t], inner
 
+def inv_sigmoid(x):
+    eps = 1.e-7
+    x = torch.clamp(x, eps, 1-eps)
+    return torch.log(x/(1-x))
+
+def un_rgb(image, colors=1.):
+    color_correlation_svd_sqrt = np.asarray([[0.26, 0.09, 0.02], [0.27, 0.00, -0.05], [0.27, -0.09, 0.03]]).astype("float32")
+    color_correlation_svd_sqrt /= np.asarray([colors, 1., 1.])
+    max_norm_svd_sqrt = np.max(np.linalg.norm(color_correlation_svd_sqrt, axis=0))
+    color_correlation_normalized = color_correlation_svd_sqrt / max_norm_svd_sqrt
+    color_uncorrelate = np.linalg.inv(color_correlation_normalized)
+
+    image = inv_sigmoid(image)
+    t_permute = image.permute(0,2,3,1)
+    t_permute = torch.matmul(t_permute, torch.tensor(color_uncorrelate.T).cuda())
+    image = t_permute.permute(0,3,1,2)
+    return image
+
+def un_spectrum(spectrum, decay_power):
+    h = spectrum.shape[2]
+    w = (spectrum.shape[3]-1)*2
+    freqs = rfft2d_freqs(h, w)
+    scale = 1.0 / np.maximum(freqs, 1.0 / max(w, h)) ** decay_power
+    scale *= np.sqrt(w*h)
+    scale = torch.tensor(scale).float()[None, None, ..., None].cuda()
+    return spectrum / scale
+
+def img2fft(img_in, decay=1., colors=1.):
+    h, w = img_in.shape[0], img_in.shape[1]
+    img_in = torch.Tensor(img_in).cuda().permute(2,0,1).unsqueeze(0) / 255.
+    img_in = un_rgb(img_in, colors=colors)
+
+    with torch.no_grad():
+        if float(torch.__version__[:3]) < 1.8:
+            spectrum = torch.rfft(img_in, 2, normalized=True) # 1.7
+        else:
+            spectrum = torch.fft.rfftn(img_in, s=(h, w), dim=[2,3], norm='ortho') # 1.8
+            spectrum = torch.view_as_real(spectrum)
+        spectrum = un_spectrum(spectrum, decay_power=decay)
+        spectrum *= 500000. # [sic!!!]
+    return spectrum
+
 # utility functions
 
 def cvshow(img):
