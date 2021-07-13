@@ -406,7 +406,7 @@ def main():
         lr0 = lr1 * 0.01
     else:
         lr0 = a.lrate
-    optimizer = torch.optim.Adam(params, lr0)
+    optimizer = torch.optim.AdamW(params, lr0, weight_decay=wd, amsgrad=True)
     sign = 1. if a.invert is True else -1.
 
     if a.verbose is True: print(' samples:', a.samples)
