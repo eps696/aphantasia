@@ -6,16 +6,26 @@ import torch.nn.functional as F
 from torchvision import transforms
 import numpy as np
 import kornia
-from kornia.geometry.transform import translate
+import kornia.geometry.transform as K
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+def random_elastic():
+    def inner(x):
+        a = np.random.rand(2)
+        k = np.random.randint(8,64) * 2 + 1 # 63
+        s = k / (np.random.rand()+2.) # 2-3 times less than k
+        # s = float(np.random.randint(8,64)) # 32
+        noise = torch.zeros([1, 2, x.shape[2], x.shape[3]]).cuda()
+        return K.elastic_transform2d(x, noise, (k,k), (s,s), tuple(a))
+    return inner
 
 def jitter(d):
     assert d > 1, "Jitter parameter d must be more than 1, currently {}".format(d)
     def inner(image_t):
         dx = np.random.choice(d)
         dy = np.random.choice(d)
-        return translate(image_t, torch.tensor([[dx, dy]]).float().to(device))
+        return K.translate(image_t, torch.tensor([[dx, dy]]).float().to(device))
     return inner
 
 def pad(w, mode="reflect", constant_value=0.5):
@@ -112,11 +122,25 @@ transforms_openai = compose([
     # crop_or_pad_to(resolution, resolution)
 ])
 
-# my compo
-transforms_custom = compose([
+# my compos
+
+# my compos
+
+transforms_elastic = compose([
     pad(4, mode="constant", constant_value=0.5),
-    random_rotate(list(range(-30, 30)) + 15 * [0]),
+    transforms.RandomErasing(0.2),
+    random_rotate(list(range(-30, 30)) + 20 * [0]),
+    random_elastic(),
     jitter(8),
-    transforms.RandomErasing(0.1),
     normalize()
 ])
+
+transforms_custom = compose([
+    pad(4, mode="constant", constant_value=0.5),
+    # transforms.RandomPerspective(0.33, 0.2),
+    transforms.RandomErasing(0.2),
+    random_rotate(list(range(-30, 30)) + 20 * [0]),
+    jitter(8),
+    normalize()
+])
+

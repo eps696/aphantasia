@@ -106,7 +106,8 @@ def main():
         a.samples = int(a.samples * 0.5)
             
     if a.transform is True:
-        trform_f = transforms.transforms_custom  
+        # trform_f = transforms.transforms_custom  
+        trform_f = transforms.transforms_elastic
         a.samples = int(a.samples * 0.95)
     else:
         trform_f = transforms.normalize()
