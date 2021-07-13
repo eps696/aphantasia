@@ -206,7 +206,7 @@ def checkout(img, fname=None, verbose=False):
         img = np.clip(img*255, 0, 255).astype(np.uint8)
         imsave(fname, img)
 
-def slice_imgs(imgs, count, size=224, transform=None, align='uniform', micro=1.):
+def slice_imgs(imgs, count, size=224, transform=None, align='uniform', macro=0.):
     def map(x, a, b):
         return x * (b-a) + a
 
@@ -228,8 +228,8 @@ def slice_imgs(imgs, count, size=224, transform=None, align='uniform', micro=1.)
     for i, img in enumerate(imgs):
         cuts = []
         sz_max_i = sz_max[i]
-        sz_min_i = size if torch.rand(1) < micro else 0.8*sz_max[i]
         for c in range(count):
+            sz_min_i = 0.9*sz_max[i] if torch.rand(1) < macro else size
             csize = map(rnd_size[c], sz_min_i, sz_max_i).int()
             offsetx = map(rnd_offx[c], 0, sz[i][1] - csize).int()
             offsety = map(rnd_offy[c], 0, sz[i][0] - csize).int()
@@ -265,7 +265,7 @@ def main():
         
         noise = a.noise * torch.rand(1, 1, *params[0].shape[2:4], 1).cuda() if a.noise > 0 else None
         img_out = image_f(noise)
-        img_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align, micro=1-a.macro)[0]
+        img_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align, macro=a.macro)[0]
         out_enc = model_clip.encode_image(img_sliced)
 
         if a.in_txt is not None: # input text
@@ -285,7 +285,7 @@ def main():
             loss -= a.sharp * derivat(img_out, mode='sobel')
             # loss -= a.sharp * derivat(img_sliced, mode='scharr')
         if a.diverse != 0:
-            img_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, trform_f, a.align, micro=1-a.macro)[0]
+            img_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, trform_f, a.align, macro=a.macro)[0]
             out_enc2 = model_clip.encode_image(img_sliced)
             loss += a.diverse * torch.cosine_similarity(out_enc, out_enc2, dim=-1).mean()
             del out_enc2; torch.cuda.empty_cache()
@@ -387,7 +387,7 @@ def main():
         if a.verbose is True: print(' ref image:', basename(a.in_img))
         img_in = torch.from_numpy(img_read(a.in_img)/255.).unsqueeze(0).permute(0,3,1,2).cuda()
         img_in = img_in[:,:3,:,:] # fix rgb channels
-        in_sliced = slice_imgs([img_in], a.samples, a.modsize, transforms.normalize(), a.align, micro=1.)[0]
+        in_sliced = slice_imgs([img_in], a.samples, a.modsize, transforms.normalize(), a.align)[0]
         img_enc = model_clip.encode_image(in_sliced).detach().clone()
         if a.sync > 0:
             sim_loss = lpips.LPIPS(net='vgg', verbose=False).cuda()
