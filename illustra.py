@@ -157,7 +157,7 @@ def main():
             lr0 = a.lrate * 0.1
         else:
             lr0 = a.lrate
-        optimizer = torch.optim.AdamW(params, lr0, weight_decay=wd, amsgrad=True)
+        optimizer = torch.optim.AdamW(params, lr0, weight_decay=0.01, amsgrad=True)
     
         if a.verbose is True: print(' topic: ', txt)
         if a.translate:
