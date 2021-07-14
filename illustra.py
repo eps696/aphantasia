@@ -55,6 +55,7 @@ def get_args():
     parser.add_argument(       '--colors',  default=1.5, type=float)
     parser.add_argument(       '--decay',   default=1.5, type=float)
     parser.add_argument('-sh', '--sharp',   default=0.3, type=float)
+    parser.add_argument('-mm', '--macro',   default=0.4, type=float, help='Endorse macro forms 0..1 ')
     parser.add_argument('-e',  '--enhance', default=0, type=float, help='Enhance consistency, boosts training')
     parser.add_argument('-n',  '--noise',   default=0.2, type=float, help='Add noise to suppress accumulation')
     parser.add_argument('-nt', '--notext',  default=0, type=float, help='Subtract typed text as image (avoiding graffiti?), [0..1]') # 0.15
@@ -181,7 +182,7 @@ def main():
             loss = 0
             noise = a.noise * torch.randn(1, 1, *params[0].shape[2:4], 1).cuda() if a.noise > 0 else None
             img_out = image_f(noise)
-            img_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align)[0]
+            img_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align, macro=a.macro)[0]
             out_enc = model_clip.encode_image(img_sliced)
 
             loss -= torch.cosine_similarity(txt_enc, out_enc, dim=-1).mean()
@@ -195,7 +196,7 @@ def main():
                 loss -= a.sharp * derivat(img_out, mode='sobel')
                 # loss -= a.sharp * derivat(img_sliced, mode='scharr')
             if a.diverse != 0:
-                img_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, trform_f, a.align)[0]
+                img_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, trform_f, a.align, macro=a.macro)[0]
                 out_enc2 = model_clip.encode_image(img_sliced)
                 loss += a.diverse * torch.cosine_similarity(out_enc, out_enc2, dim=-1).mean()
                 del out_enc2; torch.cuda.empty_cache()

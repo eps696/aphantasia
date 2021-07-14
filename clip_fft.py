@@ -55,7 +55,7 @@ def get_args():
     parser.add_argument(       '--colors',  default=1.5, type=float)
     parser.add_argument(       '--decay',   default=1.5, type=float)
     parser.add_argument('-sh', '--sharp',   default=0.3, type=float)
-    parser.add_argument('-mm', '--macro',   default=0, type=float, help='Endorse macro forms 0..1 ')
+    parser.add_argument('-mm', '--macro',   default=0.4, type=float, help='Endorse macro forms 0..1 ')
     parser.add_argument('-e',  '--enhance', default=0, type=float, help='Enhance consistency, boosts training')
     parser.add_argument('-n',  '--noise',   default=0, type=float, help='Add noise to suppress accumulation') # < 0.05 ?
     parser.add_argument('-nt', '--notext',  default=0, type=float, help='Subtract typed text as image (avoiding graffiti?), [0..1]')
