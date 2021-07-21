@@ -24,7 +24,7 @@ try: # progress bar for notebooks
 except: # normal console
     from progress_bar import ProgressBar
 
-clip_models = ['ViT-B/32', 'RN50', 'RN50x4', 'RN101']
+clip_models = ['ViT-B/16', 'ViT-B/32', 'RN101', 'RN50x16', 'RN50x4', 'RN50']
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -63,7 +63,6 @@ def get_args():
 
     if a.size is not None: a.size = [int(s) for s in a.size.split('-')][::-1]
     if len(a.size)==1: a.size = a.size * 2
-    a.modsize = 288 if a.model == 'RN50x4' else 224
     if a.multilang is True: a.model = 'ViT-B/32' # sbert model is trained with ViT
     a.diverse = -a.enhance
     a.expand = abs(a.enhance)
@@ -86,8 +85,9 @@ def main():
     # Load CLIP models
     use_jit = True if float(torch.__version__[:3]) < 1.8 else False
     model_clip, _ = clip.load(a.model, jit=use_jit)
+    a.modsize = model_clip.visual.input_resolution
     if a.verbose is True: print(' using model', a.model)
-    xmem = {'RN50':0.5, 'RN50x4':0.16, 'RN101':0.33}
+    xmem = {'RN50':0.5, 'RN50x4':0.16, 'RN50x16':0.06, 'RN101':0.33}
     if 'RN' in a.model:
         a.samples = int(a.samples * xmem[a.model])
     workdir = os.path.join(a.out_dir, basename(a.in_txt))
