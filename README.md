@@ -49,7 +49,7 @@ For non-English languages use either `--multilang` (multi-language CLIP model, t
 python clip_fft.py -t "topic sentence" -t2 "style description" -t0 "avoid this" --size 1280-720 
 ```
 * Other options:  
-`--model M` selects one of the released CLIP visual models: `ViT-B/32` (default), `RN50`, `RN50x4`, `RN101`.  
+`--model M` selects one of the released CLIP visual models: `ViT-B/32` (default), `ViT-B/16`, `RN50`, `RN50x4`, `RN50x16`, `RN101`.  
 `--align XX` option is about composition (or sampling distribution, to be more precise): `uniform` is maybe the most adequate; `overscan` can make semi-seamless tileable textures.  
 `--steps N` sets iterations count. 100-200 is enough for a starter; 500-1000 would elaborate it more thoroughly.  
 `--samples N` sets amount of the image cuts (samples), processed at one step. With more samples you can set fewer iterations for similar result (and vice versa). 200/200 is a good guess. NB: GPU memory is mostly eaten by this count (not resolution)!  
