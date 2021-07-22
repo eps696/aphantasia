@@ -322,8 +322,8 @@ def main():
     model_clip, _ = clip.load(a.model, jit=use_jit)
     a.modsize = model_clip.visual.input_resolution
     if a.verbose is True: print(' using model', a.model)
-    xmem = {'RN50':0.5, 'RN50x4':0.16, 'RN50x16':0.06, 'RN101':0.33}
-    if 'RN' in a.model:
+    xmem = {'ViT-B/16':0.25, 'RN50':0.5, 'RN50x4':0.16, 'RN50x16':0.06, 'RN101':0.33}
+    if a.model in xmem.keys():
         a.samples = int(a.samples * xmem[a.model])
             
     if a.multilang is True:
