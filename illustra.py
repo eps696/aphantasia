@@ -85,10 +85,7 @@ def main():
     # Load CLIP models
     use_jit = True if float(torch.__version__[:3]) < 1.8 else False
     model_clip, _ = clip.load(a.model, jit=use_jit)
-    try:
-        a.modsize = model_clip.visual.input_resolution 
-    except:
-        a.modsize = 288 if a.model == 'RN50x4' else 384 if a.model == 'RN50x16' else 224
+    a.modsize = model_clip.visual.input_resolution
     if a.verbose is True: print(' using model', a.model)
     xmem = {'ViT-B/16':0.25, 'RN50':0.5, 'RN50x4':0.16, 'RN50x16':0.06, 'RN101':0.33}
     if a.model in xmem.keys():
@@ -154,7 +151,7 @@ def main():
 
         sd = 0.01
         if a.keep > 0: sd = a.keep + (1-a.keep) * sd
-        params, image_f, _ = fft_image([1, 3, *a.size], resume='init.pt', sd=sd, decay_power=a.decay)
+        params, image_f = fft_image([1, 3, *a.size], resume='init.pt', sd=sd, decay_power=a.decay)
         image_f = to_valid_rgb(image_f, colors = a.colors)
 
         if a.prog is True:
@@ -261,7 +258,7 @@ def main():
         params1 = read_pt(ptfiles[px])
         params2 = read_pt(ptfiles[(px+1) % len(ptfiles)])
 
-        params, image_f, _ = fft_image([1, 3, *a.size], resume=params1, sd=1., decay_power=a.decay)
+        params, image_f = fft_image([1, 3, *a.size], resume=params1, sd=1., decay_power=a.decay)
         image_f = to_valid_rgb(image_f, colors = a.colors)
 
         for i in range(vsteps):
