@@ -1,13 +1,17 @@
 import os
-# import warnings
-# warnings.filterwarnings("ignore")
+import warnings
+warnings.filterwarnings("ignore")
 import argparse
 import numpy as np
 import cv2
-from imageio import imsave
+from imageio import imread, imsave
 import shutil
 from googletrans import Translator, constants
 from kornia.filters.sobel import spatial_gradient
+
+import pywt
+from pytorch_wavelets import DWTForward, DWTInverse
+# from pytorch_wavelets import DTCWTForward, DTCWTInverse
 
 import torch
 import torchvision
@@ -48,6 +52,9 @@ def get_args():
     parser.add_argument(       '--samples', default=200, type=int, help='Samples to evaluate')
     parser.add_argument(       '--lrate',   default=0.05, type=float, help='Learning rate')
     parser.add_argument('-p',  '--prog',    action='store_true', help='Enable progressive lrate growth (up to double a.lrate)')
+    # wavelet
+    parser.add_argument(       '--dwt',     action='store_true', help='Use DWT instead of FFT')
+    parser.add_argument('-w',  '--wave',    default='coif2', help='wavelets: db[1..], coif[1..], haar, dmey')
     # tweaks
     parser.add_argument('-a',  '--align',   default='uniform', choices=['central', 'uniform', 'overscan'], help='Sampling distribution')
     parser.add_argument('-tf', '--transform', action='store_true', help='use augmenting transforms?')
@@ -95,6 +102,71 @@ def to_valid_rgb(image_f, colors=1., decorrelate=True):
         return torch.sigmoid(image)
     return inner
     
+def init_dwt(resume=None, shape=None, wave=None, colors=None):
+    size = None
+    wp_fake = pywt.WaveletPacket2D(data=np.zeros(shape[2:]), wavelet='db1', mode='symmetric')
+    xfm = DWTForward(J=wp_fake.maxlevel, wave=wave, mode='symmetric').cuda()
+    # xfm = DTCWTForward(J=lvl, biort='near_sym_b', qshift='qshift_b').cuda() # 4x more params, biort ['antonini','legall','near_sym_a','near_sym_b']
+    ifm = DWTInverse(wave=wave, mode='symmetric').cuda() # symmetric zero periodization
+    # ifm = DTCWTInverse(biort='near_sym_b', qshift='qshift_b').cuda() # 4x more params, biort ['antonini','legall','near_sym_a','near_sym_b']
+    if resume is None: # random init
+        Yl_in, Yh_in = xfm(torch.zeros(shape).cuda())
+        Ys = [torch.randn(*Y.shape).cuda() for Y in [Yl_in, *Yh_in]]
+    elif isinstance(resume, str):
+        if os.path.isfile(resume):
+            if os.path.splitext(resume)[1].lower()[1:] in ['jpg','png','tif','bmp']:
+                img_in = imread(resume)
+                Ys = img2dwt(img_in, wave=wave, colors=colors)
+                print(' loaded image', resume, img_in.shape, 'level', len(Ys)-1)
+                size = img_in.shape[:2]
+                wp_fake = pywt.WaveletPacket2D(data=np.zeros(size), wavelet='db1', mode='symmetric')
+                xfm = DWTForward(J=wp_fake.maxlevel, wave=wave, mode='symmetric').cuda()
+            else:
+                Ys = torch.load(resume)
+                Ys = [y.detach().cuda() for y in Ys]
+        else: print(' Snapshot not found:', resume); exit()
+    else:
+        Ys = [y.cuda() for y in resume]
+    # print('level', len(Ys)-1, 'low freq', Ys[0].cpu().numpy().shape)
+    return Ys, xfm, ifm, size
+
+def dwt_image(shape, wave='coif2', sharp=0.3, colors=1., resume=None):
+    Ys, _, ifm, size = init_dwt(resume, shape, wave, colors)
+    Ys = [y.requires_grad_(True) for y in Ys]
+    scale = dwt_scale(Ys, sharp)
+
+    def inner(shift=None, contrast=1.):
+        image = ifm((Ys[0], [Ys[i+1] * float(scale[i]) for i in range(len(Ys)-1)]))
+        image = image * contrast / image.std() # keep contrast, empirical *1.33
+        return image
+
+    return Ys, inner, size
+
+def dwt_scale(Ys, sharp):
+    scale = []
+    [h0,w0] = Ys[1].shape[3:5]
+    for i in range(len(Ys)-1):
+        [h,w] = Ys[i+1].shape[3:5]
+        scale.append( ((h0*w0)/(h*w)) ** (1.-sharp) )
+        # print(i+1, Ys[i+1].shape)
+    return scale
+
+def img2dwt(img_in, wave='coif2', sharp=0.3, colors=1.):
+    if not isinstance(img_in, torch.Tensor):
+        img_in = torch.Tensor(img_in).cuda().permute(2,0,1).unsqueeze(0).float() / 255.
+    img_in = un_rgb(img_in, colors=colors)
+    with torch.no_grad():
+        wp_fake = pywt.WaveletPacket2D(data=np.zeros(img_in.shape[2:]), wavelet='db1', mode='zero')
+        lvl = wp_fake.maxlevel
+        # print(img_in.shape, lvl)
+        xfm = DWTForward(J=lvl, wave=wave, mode='symmetric').cuda()
+        Yl_in, Yh_in = xfm(img_in.cuda())
+        Ys = [Yl_in, *Yh_in]
+    scale = dwt_scale(Ys, sharp)
+    for i in range(len(Ys)-1):
+        Ys[i+1] /= scale[i]
+    return Ys
+
 def pixel_image(shape, sd=2.):
     tensor = (torch.randn(*shape) * sd).cuda().requires_grad_(True)
     return [tensor], lambda: tensor
@@ -108,24 +180,38 @@ def rfft2d_freqs(h, w):
     fx = np.fft.fftfreq(w)[:w2]
     return np.sqrt(fx * fx + fy * fy)
 
-def fft_image(shape, sd=0.01, decay_power=1.0, resume=None): # decay ~ blur
-    b, ch, h, w = shape
-    freqs = rfft2d_freqs(h, w)
-    init_val_size = (b, ch) + freqs.shape + (2,) # 2 for imaginary and real components
-
-    if resume is None:
-        spectrum_real_imag_t = (torch.randn(*init_val_size) * sd).cuda().requires_grad_(True)
-    elif isinstance(resume, str) and os.path.isfile(resume):
-        saved = torch.load(resume)
-        if isinstance(saved, list): saved = saved[0]
-        spectrum_real_imag_t = (saved * sd).cuda().requires_grad_(True)
-        # print(' resuming from:', resume, spectrum_real_imag_t.shape)
+def resume_fft(resume=None, shape=None, decay=None, colors=1.6, sd=0.01):
+    size = None
+    if resume is None: # random init
+        params_shape = [*shape[:3], shape[3]//2+1, 2] # [1,3,512,257,2] for 512x512 (2 for imaginary and real components)
+        params = 0.01 * torch.randn(*params_shape).cuda()
+    elif isinstance(resume, str):
+        if os.path.isfile(resume):
+            if os.path.splitext(resume)[1].lower()[1:] in ['jpg','png','tif','bmp']:
+                img_in = imread(resume)
+                params = img2fft(img_in, decay, colors)
+                size = img_in.shape[:2]
+            else:
+                params = torch.load(resume)
+                if isinstance(params, list): params = params[0]
+                params = params.detach().cuda()
+            params *= sd
+        else: print(' Snapshot not found:', resume); exit()
     else:
         if isinstance(resume, list): resume = resume[0]
-        spectrum_real_imag_t = (resume * sd).cuda().requires_grad_(True)
+        params = resume.cuda()
+    return params, size
 
-    scale = 1.0 / np.maximum(freqs, 1.0 / max(w, h)) ** decay_power
-    scale *= np.sqrt(w*h)
+def fft_image(shape, sd=0.01, decay_power=1.0, resume=None): # decay ~ blur
+
+    params, size = resume_fft(resume, shape, decay_power, sd=sd)
+    spectrum_real_imag_t = params.requires_grad_(True)
+    if size is not None: shape[2:] = size
+    [h,w] = list(shape[2:])
+
+    freqs = rfft2d_freqs(h,w)
+    scale = 1. / np.maximum(freqs, 4./max(h,w)) ** decay_power
+    scale *= np.sqrt(h*w)
     scale = torch.tensor(scale).float()[None, None, ..., None].cuda()
 
     def inner(shift=None, contrast=1.):
@@ -138,15 +224,16 @@ def fft_image(shape, sd=0.01, decay_power=1.0, resume=None): # decay ~ blur
             if type(scaled_spectrum_t) is not torch.complex64:
                 scaled_spectrum_t = torch.view_as_complex(scaled_spectrum_t)
             image = torch.fft.irfftn(scaled_spectrum_t, s=(h, w), norm='ortho')
-        image = image[:b, :ch, :h, :w]
         image = image * contrast / image.std() # keep contrast, empirical
         return image
-    return [spectrum_real_imag_t], inner
+
+    return [spectrum_real_imag_t], inner, size
 
 def inv_sigmoid(x):
-    eps = 1.e-7
-    x = torch.clamp(x, eps, 1-eps)
-    return torch.log(x/(1-x))
+    eps = 1.e-12
+    x = torch.clamp(x.double(), eps, 1-eps)
+    y = torch.log(x/(1-x))
+    return y.float()
 
 def un_rgb(image, colors=1.):
     color_correlation_svd_sqrt = np.asarray([[0.26, 0.09, 0.02], [0.27, 0.00, -0.05], [0.27, -0.09, 0.03]]).astype("float32")
@@ -280,7 +367,7 @@ def main():
         if a.sync > 0 and a.in_img is not None and os.path.isfile(a.in_img): # image composition
             prog_sync = (a.steps // a.fstep - i) / (a.steps // a.fstep)
             loss += prog_sync * a.sync * sim_loss(F.interpolate(img_out, sim_size).float(), img_in, normalize=True).squeeze()
-        if a.sharp != 0: # mode = scharr|sobel|default
+        if a.sharp != 0 and a.dwt is not True: # scharr|sobel|default
             loss -= a.sharp * derivat(img_out, mode='sobel')
             # loss -= a.sharp * derivat(img_sliced, mode='scharr')
         if a.diverse != 0:
@@ -320,7 +407,10 @@ def main():
     # Load CLIP models
     use_jit = True if float(torch.__version__[:3]) < 1.8 else False
     model_clip, _ = clip.load(a.model, jit=use_jit)
-    a.modsize = model_clip.visual.input_resolution
+    try:
+        a.modsize = model_clip.visual.input_resolution 
+    except:
+        a.modsize = 288 if a.model == 'RN50x4' else 384 if a.model == 'RN50x16' else 224
     if a.verbose is True: print(' using model', a.model)
     xmem = {'ViT-B/16':0.25, 'RN50':0.5, 'RN50x4':0.16, 'RN50x16':0.06, 'RN101':0.33}
     if a.model in xmem.keys():
@@ -399,7 +489,12 @@ def main():
         del in_sliced; torch.cuda.empty_cache()
         out_name.append(basename(a.in_img).replace(' ', '_'))
 
-    params, image_f = fft_image([1, 3, *a.size], resume=a.resume, decay_power=a.decay)
+    shape = [1, 3, *a.size]
+    if a.dwt is True:
+        params, image_f, sz = dwt_image(shape, a.wave, a.sharp, a.colors, a.resume)
+    else:
+        params, image_f, sz = fft_image(shape, 0.01, a.decay, a.resume)
+    if sz is not None: a.size = sz
     image_f = to_valid_rgb(image_f, colors = a.colors)
 
     if a.prog is True:
