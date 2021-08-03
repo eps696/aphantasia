@@ -14,3 +14,5 @@ lpips
 omegaconf>=2.0.0
 pytorch-lightning>=1.0.8
 einops
+PyWavelets==1.1.1
+git+https://github.com/fbcotter/pytorch_wavelets
