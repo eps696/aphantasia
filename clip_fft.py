@@ -3,11 +3,9 @@ import warnings
 warnings.filterwarnings("ignore")
 import argparse
 import numpy as np
-import cv2
 from imageio import imread, imsave
 import shutil
 from googletrans import Translator, constants
-from kornia.filters.sobel import spatial_gradient
 
 import pywt
 from pytorch_wavelets import DWTForward, DWTInverse
@@ -22,7 +20,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 from sentence_transformers import SentenceTransformer
 import lpips
 
-from utils import pad_up_to, basename, img_list, img_read, plot_text, txt_clean
+from utils import slice_imgs, derivat, basename, img_list, img_read, plot_text, txt_clean, checkout
 import transforms
 try: # progress bar for notebooks 
     get_ipython().__class__.__name__
@@ -271,75 +269,6 @@ def img2fft(img_in, decay=1., colors=1.):
         spectrum = un_spectrum(spectrum, decay_power=decay)
         spectrum *= 500000. # [sic!!!]
     return spectrum
-
-# utility functions
-
-def cvshow(img):
-    img = np.array(img)
-    if img.shape[0] > 720 or img.shape[1] > 1280:
-        x_ = 1280 / img.shape[1]
-        y_ = 720  / img.shape[0]
-        psize = tuple([int(s * min(x_, y_)) for s in img.shape[:2][::-1]])
-        img = cv2.resize(img, psize)
-    cv2.imshow('t', img[:,:,::-1])
-    cv2.waitKey(1)
-
-def checkout(img, fname=None, verbose=False):
-    img = np.transpose(np.array(img)[:,:,:], (1,2,0))
-    if verbose is True:
-        cvshow(img)
-    if fname is not None:
-        img = np.clip(img*255, 0, 255).astype(np.uint8)
-        imsave(fname, img)
-
-def slice_imgs(imgs, count, size=224, transform=None, align='uniform', macro=0.):
-    def map(x, a, b):
-        return x * (b-a) + a
-
-    rnd_size = torch.rand(count)
-    if align == 'central': # normal around center
-        rnd_offx = torch.clip(torch.randn(count) * 0.2 + 0.5, 0., 1.)
-        rnd_offy = torch.clip(torch.randn(count) * 0.2 + 0.5, 0., 1.)
-    else: # uniform
-        rnd_offx = torch.rand(count)
-        rnd_offy = torch.rand(count)
-    
-    sz = [img.shape[2:] for img in imgs]
-    sz_max = [torch.min(torch.tensor(s)) for s in sz]
-    if align == 'overscan': # add space
-        sz = [[2*s[0], 2*s[1]] for s in list(sz)]
-        imgs = [pad_up_to(imgs[i], sz[i], type='centr') for i in range(len(imgs))]
-
-    sliced = []
-    for i, img in enumerate(imgs):
-        cuts = []
-        sz_max_i = sz_max[i]
-        for c in range(count):
-            sz_min_i = 0.9*sz_max[i] if torch.rand(1) < macro else size
-            csize = map(rnd_size[c], sz_min_i, sz_max_i).int()
-            offsetx = map(rnd_offx[c], 0, sz[i][1] - csize).int()
-            offsety = map(rnd_offy[c], 0, sz[i][0] - csize).int()
-            cut = img[:, :, offsety:offsety + csize, offsetx:offsetx + csize]
-            cut = F.interpolate(cut, (size,size), mode='bicubic', align_corners=False) # bilinear
-            if transform is not None: 
-                cut = transform(cut)
-            cuts.append(cut)
-        sliced.append(torch.cat(cuts, 0))
-    return sliced
-
-def derivat(img, mode='sobel'):
-    if mode == 'scharr': 
-        # https://en.wikipedia.org/wiki/Sobel_operator#Alternative_operators
-        k_scharr = torch.Tensor([[[-0.183,0.,0.183], [-0.634,0.,0.634], [-0.183,0.,0.183]], [[-0.183,-0.634,-0.183], [0.,0.,0.], [0.183,0.634,0.183]]])
-        k_scharr = k_scharr.unsqueeze(1).tile((1,3,1,1)).cuda()
-        return 0.2 * torch.mean(torch.abs(F.conv2d(img, k_scharr)))
-    elif mode == 'sobel':
-        # https://kornia.readthedocs.io/en/latest/filters.html#edge-detection
-        return torch.mean(torch.abs(spatial_gradient(img)))
-    else: # trivial hack
-        dx = torch.mean(torch.abs(img[:,:,:,1:] - img[:,:,:,:-1]))
-        dy = torch.mean(torch.abs(img[:,:,1:,:] - img[:,:,:-1,:]))
-        return 0.5 * (dx+dy)
 
 
 def main():

@@ -8,8 +8,8 @@ from imageio import imsave
 
 import torch
 
-from clip_fft import to_valid_rgb, fft_image, cvshow
-from utils import basename, file_list
+from clip_fft import to_valid_rgb, fft_image
+from utils import basename, file_list, cvshow
 try: # progress bar for notebooks 
     get_ipython().__class__.__name__
     from progress_bar import ProgressIPy as ProgressBar

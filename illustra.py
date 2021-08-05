@@ -2,7 +2,6 @@ import os
 import argparse
 import math
 import numpy as np
-import cv2
 import shutil
 from imageio import imsave
 from googletrans import Translator, constants
@@ -15,8 +14,8 @@ import clip
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 from sentence_transformers import SentenceTransformer
 
-from clip_fft import to_valid_rgb, fft_image, slice_imgs, derivat, checkout, cvshow
-from utils import pad_up_to, basename, file_list, img_list, img_read, txt_clean, plot_text
+from clip_fft import to_valid_rgb, fft_image
+from utils import slice_imgs, derivat, checkout, cvshow, pad_up_to, basename, file_list, img_list, img_read, txt_clean, plot_text
 import transforms
 try: # progress bar for notebooks 
     get_ipython().__class__.__name__
