@@ -165,9 +165,26 @@ def img2dwt(img_in, wave='coif2', sharp=0.3, colors=1.):
         Ys[i+1] /= scale[i]
     return Ys
 
-def pixel_image(shape, sd=2.):
-    tensor = (torch.randn(*shape) * sd).cuda().requires_grad_(True)
-    return [tensor], lambda: tensor
+def pixel_image(shape, resume=None, sd=1., *noargs, **nokwargs):
+    size = None
+    if resume is None:
+        tensor = (torch.randn(*shape) * sd)
+    elif isinstance(resume, str):
+        if os.path.isfile(resume):
+            img_in = imread(resume) / 255.
+            tensor = torch.Tensor(img_in).permute(2,0,1).unsqueeze(0).float()
+            size = img_in.shape[:2]
+            print(resume, size)
+        else: print(' Image not found:', resume); exit()
+    else:
+        if isinstance(resume, list): resume = resume[0]
+        tensor = resume
+    tensor = tensor.cuda().requires_grad_(True)
+
+    def inner(shift=None, contrast=1.): # *noargs, **nokwargs
+        image = tensor * contrast / tensor.std()
+        return image
+    return [tensor], inner, size # lambda: tensor
 
 # From https://github.com/tensorflow/lucid/blob/master/lucid/optvis/param/spatial.py
 def rfft2d_freqs(h, w):
