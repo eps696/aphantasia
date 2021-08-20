@@ -168,11 +168,12 @@ def img2dwt(img_in, wave='coif2', sharp=0.3, colors=1.):
 def pixel_image(shape, resume=None, sd=1., *noargs, **nokwargs):
     size = None
     if resume is None:
-        tensor = (torch.randn(*shape) * sd)
+        tensor = torch.randn(*shape) * sd
     elif isinstance(resume, str):
         if os.path.isfile(resume):
             img_in = imread(resume) / 255.
             tensor = torch.Tensor(img_in).permute(2,0,1).unsqueeze(0).float()
+            tensor = un_rgb(tensor, colors=1.)
             size = img_in.shape[:2]
             print(resume, size)
         else: print(' Image not found:', resume); exit()

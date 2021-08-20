@@ -46,7 +46,7 @@ def main():
         params1 = read_pt(ptfiles[px])
         params2 = read_pt(ptfiles[(px+1) % len(ptfiles)])
 
-        params, image_f = fft_image(shape, resume=params1)
+        params, image_f, _ = fft_image(shape, resume=params1)
         image_f = to_valid_rgb(image_f)
 
         for i in range(vsteps):
