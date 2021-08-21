@@ -173,7 +173,7 @@ def pixel_image(shape, resume=None, sd=1., *noargs, **nokwargs):
         if os.path.isfile(resume):
             img_in = imread(resume) / 255.
             tensor = torch.Tensor(img_in).permute(2,0,1).unsqueeze(0).float()
-            tensor = un_rgb(tensor, colors=1.)
+            tensor = un_rgb(tensor-0.5, colors=2.) # experimental
             size = img_in.shape[:2]
             print(resume, size)
         else: print(' Image not found:', resume); exit()

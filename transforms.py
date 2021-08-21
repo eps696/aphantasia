@@ -138,7 +138,7 @@ transforms_elastic = compose([
 transforms_custom = compose([
     pad(4, mode="constant", constant_value=0.5),
     # transforms.RandomPerspective(0.33, 0.2),
-    transforms.RandomErasing(0.2),
+    # transforms.RandomErasing(0.2),
     random_rotate(list(range(-30, 30)) + 20 * [0]),
     jitter(8),
     normalize()

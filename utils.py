@@ -189,7 +189,7 @@ def slice_imgs(imgs, count, size=224, transform=None, align='uniform', macro=0.)
             offsetx = map(rnd_offx[c], 0, sz[i][1] - csize).int()
             offsety = map(rnd_offy[c], 0, sz[i][0] - csize).int()
             cut = img[:, :, offsety:offsety + csize, offsetx:offsetx + csize]
-            cut = F.interpolate(cut, (size,size), mode='bicubic', align_corners=False) # bilinear
+            cut = F.interpolate(cut, (size,size), mode='bicubic', align_corners=True) # bilinear
             if transform is not None: 
                 cut = transform(cut)
             cuts.append(cut)
