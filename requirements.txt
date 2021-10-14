@@ -8,7 +8,7 @@ torch>=1.7.1
 torchvision>=0.8.2
 opencv-python
 sentence_transformers
-transformers==4.6.0
+transformers>=4.6.0
 kornia==0.5.3
 lpips
 omegaconf>=2.0.0
