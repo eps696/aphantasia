@@ -59,7 +59,7 @@ def random_rotate(angles, units="degrees"):
         center[..., 1] = (image_t.shape[2] - 1) / 2
         try:
             M = kornia.geometry.transform.get_rotation_matrix2d(center, angle, scale).to(device)
-            rotated_image = kornia.geometry.transform..warp_affine(image_t.float(), M, dsize=(h, w))
+            rotated_image = kornia.geometry.transform.warp_affine(image_t.float(), M, dsize=(h, w))
         except:
             M = kornia.get_rotation_matrix2d(center, angle, scale).to(device)
             rotated_image = kornia.warp_affine(image_t.float(), M, dsize=(h, w))
