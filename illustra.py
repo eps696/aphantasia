@@ -15,7 +15,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 from sentence_transformers import SentenceTransformer
 
 from clip_fft import to_valid_rgb, fft_image
-from utils import slice_imgs, derivat, checkout, cvshow, pad_up_to, basename, file_list, img_list, img_read, txt_clean, plot_text
+from utils import slice_imgs, derivat, checkout, cvshow, pad_up_to, basename, file_list, img_list, img_read, txt_clean, plot_text, old_torch
 import transforms
 try: # progress bar for notebooks 
     get_ipython().__class__.__name__
@@ -82,8 +82,7 @@ def main():
     a = get_args()
 
     # Load CLIP models
-    use_jit = True if float(torch.__version__[:3]) < 1.8 else False
-    model_clip, _ = clip.load(a.model, jit=use_jit)
+    model_clip, _ = clip.load(a.model, jit=old_torch())
     try:
         a.modsize = model_clip.visual.input_resolution 
     except:

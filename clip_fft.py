@@ -20,7 +20,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 from sentence_transformers import SentenceTransformer
 import lpips
 
-from utils import slice_imgs, derivat, basename, img_list, img_read, plot_text, txt_clean, checkout
+from utils import slice_imgs, derivat, basename, img_list, img_read, plot_text, txt_clean, checkout, old_torch
 import transforms
 try: # progress bar for notebooks 
     get_ipython().__class__.__name__
@@ -234,7 +234,7 @@ def fft_image(shape, sd=0.01, decay_power=1.0, resume=None): # decay ~ blur
         scaled_spectrum_t = scale * spectrum_real_imag_t
         if shift is not None:
             scaled_spectrum_t += scale * shift
-        if float(torch.__version__[:3]) < 1.8:
+        if old_torch():
             image = torch.irfft(scaled_spectrum_t, 2, normalized=True, signal_sizes=(h, w))
         else:
             if type(scaled_spectrum_t) is not torch.complex64:
@@ -279,7 +279,7 @@ def img2fft(img_in, decay=1., colors=1.):
     img_in = un_rgb(img_in, colors=colors)
 
     with torch.no_grad():
-        if float(torch.__version__[:3]) < 1.8:
+        if old_torch():
             spectrum = torch.rfft(img_in, 2, normalized=True) # 1.7
         else:
             spectrum = torch.fft.rfftn(img_in, s=(h, w), dim=[2,3], norm='ortho') # 1.8
@@ -352,8 +352,7 @@ def main():
             pbar.upd()
 
     # Load CLIP models
-    use_jit = True if float(torch.__version__[:3]) < 1.8 else False
-    model_clip, _ = clip.load(a.model, jit=use_jit)
+    model_clip, _ = clip.load(a.model, jit=old_torch())
     try:
         a.modsize = model_clip.visual.input_resolution 
     except:

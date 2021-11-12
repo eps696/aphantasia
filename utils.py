@@ -25,6 +25,10 @@ def plot_text(txt, size=224):
 def txt_clean(txt):
     return txt.translate(str.maketrans(dict.fromkeys(list("\n',.вЂ”|!?/:;\\"), ""))).replace(' ', '_').replace('"', '')
 
+def old_torch():
+    ver = [int(i) for i in torch.__version__.split('.')[:2]]
+    return True if (ver[0] < 2 and ver[1] < 8) else False
+
 def basename(file):
     return os.path.splitext(os.path.basename(file))[0]
 
