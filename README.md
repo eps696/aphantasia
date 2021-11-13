@@ -58,13 +58,14 @@ python clip_fft.py -t "topic sentence" -t2 "style description" -t0 "avoid this" 
 `--decay X` (compositional softness), `--colors X` (saturation) and `--contrast X` may be useful, especially for ResNet models (they tend to burn the colors). 
 `--sharp X` may be useful to increase sharpness, if the image becomes "myopic" after increasing `decay`. it affects the other color parameters, better tweak them all together! 
 Current defaults are `--decay 1.5 --colors 1.5 --contrast 0.9 --sharp 0.3`.  
-`--transform` applies some augmentations, inhibiting image fragmentation & "graffiti" printing (slower, yet recommended).  
+`--transform` applies some augmentations, usually enhancing result (but slower).  
 `--invert` negates the whole criteria, if you fancy checking "totally opposite".  
 `--save_pt myfile.pt` will save FFT/DWT parameters, to resume for next query with `--resume myfile.pt`. One can also start/resume directly from an image file.  
 `--fstep N` tells to save every Nth frame (useful with high iterations, default is 1).  
 `--verbose` ('on' by default) enables some printouts and realtime image preview.  
 * Some experimental tricks with less definite effects:  
-`--enhance X` boosts training consistency (of simultaneous samples) and overall progress. good start is ~0.2.  
+`--enforce X` adds more details by boosting similarity between two parallel samples. good start is ~0.2.  
+`--expand X` boosts diversity by enforcing difference between prev/next samples. good start is ~0.4.  
 `--notext X` tries to remove "graffiti" by subtracting plotted text prompt. good start is ~0.1.  
 `--noise X` adds some noise to the parameters, possibly making composition less clogged (in a degree).  
 `--macro X` (from 0 to 1) shifts generation to bigger forms and less disperse composition. should not be too close to 1, since the quality depends on the variety of samples.  
@@ -93,6 +94,8 @@ python interpol.py -i mydir --length 155
 * VQGAN from [Taming Transformers](https://github.com/CompVis/taming-transformers)  
 One of the best methods for colors/tones/details (especially with new Gumbel-F8 model); has quite limited resolution though (~800x600 max on Colab).  
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/eps696/aphantasia/blob/master/CLIP_VQGAN.ipynb) 
+* Continuous mode with VQGAN (analog of Illustra)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1H7vHyS6mRU7gW59lfi2Qa6M-RXKIJ8Si)
 <p><img src='_out/some_cute_image-VQGAN.jpg' /></p>
 
 * SIREN + [Fourier feature modulation](https://github.com/tancik/fourier-feature-networks)  
