@@ -128,8 +128,6 @@ transforms_openai = compose([
 
 # my compos
 
-# my compos
-
 transforms_elastic = compose([
     pad(4, mode="constant", constant_value=0.5),
     transforms.RandomErasing(0.2),
