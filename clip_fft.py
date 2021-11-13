@@ -20,7 +20,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 from sentence_transformers import SentenceTransformer
 import lpips
 
-from utils import slice_imgs, derivat, basename, img_list, img_read, plot_text, txt_clean, checkout, old_torch
+from utils import slice_imgs, derivat, sim_func, basename, img_list, img_read, plot_text, txt_clean, checkout, old_torch
 import transforms
 try: # progress bar for notebooks 
     get_ipython().__class__.__name__
@@ -35,6 +35,7 @@ def get_args():
     parser.add_argument('-i',  '--in_img',  default=None, help='input image')
     parser.add_argument('-t',  '--in_txt',  default=None, help='input text')
     parser.add_argument('-t2', '--in_txt2', default=None, help='input text - style')
+    parser.add_argument('-w2', '--weight2', default=0.5, type=float, help='weight for style')
     parser.add_argument('-t0', '--in_txt0', default=None, help='input text to subtract')
     parser.add_argument(       '--out_dir', default='_out')
     parser.add_argument('-s',  '--size',    default='1280-720', help='Output resolution')
@@ -54,42 +55,41 @@ def get_args():
     parser.add_argument(       '--dwt',     action='store_true', help='Use DWT instead of FFT')
     parser.add_argument('-w',  '--wave',    default='coif2', help='wavelets: db[1..], coif[1..], haar, dmey')
     # tweaks
-    parser.add_argument('-a',  '--align',   default='uniform', choices=['central', 'uniform', 'overscan'], help='Sampling distribution')
-    parser.add_argument('-tf', '--transform', action='store_true', help='use augmenting transforms?')
+    parser.add_argument('-a',  '--align',   default='uniform', choices=['central', 'uniform', 'overscan', 'overmax'], help='Sampling distribution')
+    parser.add_argument('-tf', '--transform', default='custom', choices=['none', 'custom', 'elastic'], help='use augmenting transforms?')
     parser.add_argument(       '--contrast', default=0.9, type=float)
     parser.add_argument(       '--colors',  default=1.5, type=float)
     parser.add_argument(       '--decay',   default=1.5, type=float)
     parser.add_argument('-sh', '--sharp',   default=0.3, type=float)
     parser.add_argument('-mm', '--macro',   default=0.4, type=float, help='Endorse macro forms 0..1 ')
-    parser.add_argument('-e',  '--enhance', default=0, type=float, help='Enhance consistency, boosts training')
+    parser.add_argument('-e',  '--enforce', default=0, type=float, help='Enforce details (by boosting similarity between two parallel samples)')
+    parser.add_argument('-x',  '--expand',  default=0, type=float, help='Boosts diversity (by enforcing difference between prev/next samples)')
     parser.add_argument('-n',  '--noise',   default=0, type=float, help='Add noise to suppress accumulation') # < 0.05 ?
     parser.add_argument('-nt', '--notext',  default=0, type=float, help='Subtract typed text as image (avoiding graffiti?), [0..1]')
     parser.add_argument('-c',  '--sync',    default=0, type=float, help='Sync output to input image')
     parser.add_argument(       '--invert',  action='store_true', help='Invert criteria')
+    parser.add_argument(       '--sim',     default='mix', help='Similarity function (dot/angular/spherical/mixed; None = cossim)')
     a = parser.parse_args()
 
     if a.size is not None: a.size = [int(s) for s in a.size.split('-')][::-1]
     if len(a.size)==1: a.size = a.size * 2
-    if a.in_img is not None and a.sync > 0: a.align = 'overscan'
+    if a.in_img is not None and a.sync != 0: a.align = 'overscan'
     if a.multilang is True: a.model = 'ViT-B/32' # sbert model is trained with ViT
-    a.diverse = -a.enhance
-    a.expand = abs(a.enhance)
     return a
 
 ### FFT from Lucent library ###  https://github.com/greentfrapp/lucent
 
 def to_valid_rgb(image_f, colors=1., decorrelate=True):
-    color_correlation_svd_sqrt = np.asarray([[0.26, 0.09, 0.02],
-                                             [0.27, 0.00, -0.05],
-                                             [0.27, -0.09, 0.03]]).astype("float32")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    color_correlation_svd_sqrt = np.asarray([[0.26, 0.09, 0.02], [0.27, 0.00, -0.05], [0.27, -0.09, 0.03]]).astype("float32")
     color_correlation_svd_sqrt /= np.asarray([colors, 1., 1.]) # saturate, empirical
     max_norm_svd_sqrt = np.max(np.linalg.norm(color_correlation_svd_sqrt, axis=0))
     color_correlation_normalized = color_correlation_svd_sqrt / max_norm_svd_sqrt
+    colcorr_t = torch.tensor(color_correlation_normalized.T).to(device)
 
     def _linear_decorrelate_color(tensor):
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         t_permute = tensor.permute(0,2,3,1)
-        t_permute = torch.matmul(t_permute, torch.tensor(color_correlation_normalized.T).to(device))
+        t_permute = torch.matmul(t_permute, colcorr_t)
         tensor = t_permute.permute(0,3,1,2)
         return tensor
 
@@ -171,8 +171,8 @@ def pixel_image(shape, resume=None, sd=1., *noargs, **nokwargs):
         tensor = torch.randn(*shape) * sd
     elif isinstance(resume, str):
         if os.path.isfile(resume):
-            img_in = imread(resume) / 255.
-            tensor = torch.Tensor(img_in).permute(2,0,1).unsqueeze(0).float()
+            img_in = img_read(resume) / 255.
+            tensor = torch.Tensor(img_in).permute(2,0,1).unsqueeze(0).float().cuda()
             tensor = un_rgb(tensor-0.5, colors=2.) # experimental
             size = img_in.shape[:2]
             print(resume, size)
@@ -204,7 +204,7 @@ def resume_fft(resume=None, shape=None, decay=None, colors=1.6, sd=0.01):
     elif isinstance(resume, str):
         if os.path.isfile(resume):
             if os.path.splitext(resume)[1].lower()[1:] in ['jpg','png','tif','bmp']:
-                img_in = imread(resume)
+                img_in = img_read(resume)
                 params = img2fft(img_in, decay, colors)
                 size = img_in.shape[:2]
             else:
@@ -274,8 +274,11 @@ def un_spectrum(spectrum, decay_power):
     return spectrum / scale
 
 def img2fft(img_in, decay=1., colors=1.):
-    h, w = img_in.shape[0], img_in.shape[1]
-    img_in = torch.Tensor(img_in).cuda().permute(2,0,1).unsqueeze(0) / 255.
+    if isinstance(img_in, torch.Tensor):
+        h, w = img_in.shape[2], img_in.shape[3]
+    else:
+        h, w = img_in.shape[0], img_in.shape[1]
+        img_in = torch.Tensor(img_in).cuda().permute(2,0,1).unsqueeze(0) / 255.
     img_in = un_rgb(img_in, colors=colors)
 
     with torch.no_grad():
@@ -292,41 +295,149 @@ def img2fft(img_in, decay=1., colors=1.):
 def main():
     a = get_args()
 
+    shape = [1, 3, *a.size]
+    if a.dwt is True:
+        params, image_f, sz = dwt_image(shape, a.wave, a.sharp, a.colors, a.resume)
+    else:
+        params, image_f, sz = fft_image(shape, 0.01, a.decay, a.resume)
+    if sz is not None: a.size = sz
+    image_f = to_valid_rgb(image_f, colors = a.colors)
+
+    if a.prog is True:
+        lr1 = a.lrate * 2
+        lr0 = lr1 * 0.01
+    else:
+        lr0 = a.lrate
+    optimizer = torch.optim.AdamW(params, lr0, weight_decay=0.01, amsgrad=True)
+    sign = 1. if a.invert is True else -1.
+
+    # Load CLIP models
+    model_clip, _ = clip.load(a.model, jit=old_torch())
+    try:
+        a.modsize = model_clip.visual.input_resolution 
+    except:
+        a.modsize = 288 if a.model == 'RN50x4' else 384 if a.model == 'RN50x16' else 224
+    if a.verbose is True: print(' using model', a.model)
+    xmem = {'ViT-B/16':0.25, 'RN50':0.5, 'RN50x4':0.16, 'RN50x16':0.06, 'RN101':0.33}
+    if a.model in xmem.keys():
+        a.samples = int(a.samples * xmem[a.model])
+            
+    if a.multilang is True:
+        model_lang = SentenceTransformer('clip-ViT-B-32-multilingual-v1').cuda()
+
+    def enc_text(txt):
+        if a.multilang is True:
+            emb = model_lang.encode([txt], convert_to_tensor=True, show_progress_bar=False)
+        else:
+            emb = model_clip.encode_text(clip.tokenize(txt).cuda())
+        return emb.detach().clone()
+    
+    if a.enforce != 0:
+        a.samples = int(a.samples * 0.5)
+    if a.sync > 0:
+        a.samples = int(a.samples * 0.5)
+            
+    if 'elastic' in a.transform:
+        trform_f = transforms.transforms_elastic  
+        a.samples = int(a.samples * 0.95)
+    elif 'custom' in a.transform:
+        trform_f = transforms.transforms_custom  
+        a.samples = int(a.samples * 0.95)
+    else:
+        trform_f = transforms.normalize()
+
+    out_name = []
+    if a.in_txt is not None:
+        if a.verbose is True: print(' topic text: ', a.in_txt)
+        if a.translate:
+            translator = Translator()
+            a.in_txt = translator.translate(a.in_txt, dest='en').text
+            if a.verbose is True: print(' translated to:', a.in_txt) 
+        txt_enc = enc_text(a.in_txt)
+        out_name.append(txt_clean(a.in_txt).lower()[:40])
+
+        if a.notext > 0:
+            txt_plot = torch.from_numpy(plot_text(a.in_txt, a.modsize)/255.).unsqueeze(0).permute(0,3,1,2).cuda()
+            txt_plot_enc = model_clip.encode_image(txt_plot).detach().clone()
+
+    if a.in_txt2 is not None:
+        if a.verbose is True: print(' style text:', a.in_txt2)
+        a.samples = int(a.samples * 0.75)
+        if a.translate:
+            translator = Translator()
+            a.in_txt2 = translator.translate(a.in_txt2, dest='en').text
+            if a.verbose is True: print(' translated to:', a.in_txt2) 
+        txt_enc2 = enc_text(a.in_txt2)
+        out_name.append(txt_clean(a.in_txt2).lower()[:40])
+
+    if a.in_txt0 is not None:
+        if a.verbose is True: print(' subtract text:', a.in_txt0)
+        a.samples = int(a.samples * 0.75)
+        if a.translate:
+            translator = Translator()
+            a.in_txt0 = translator.translate(a.in_txt0, dest='en').text
+            if a.verbose is True: print(' translated to:', a.in_txt0) 
+        txt_enc0 = enc_text(a.in_txt0)
+        out_name.append('off-' + txt_clean(a.in_txt0).lower()[:40])
+
+    if a.multilang is True: del model_lang
+
+    if a.in_img is not None and os.path.isfile(a.in_img):
+        if a.verbose is True: print(' ref image:', basename(a.in_img))
+        img_in = torch.from_numpy(img_read(a.in_img)/255.).unsqueeze(0).permute(0,3,1,2).cuda()
+        img_in = img_in[:,:3,:,:] # fix rgb channels
+        in_sliced = slice_imgs([img_in], a.samples, a.modsize, transforms.normalize(), a.align)[0]
+        img_enc = model_clip.encode_image(in_sliced).detach().clone()
+        if a.sync > 0:
+            sim_loss = lpips.LPIPS(net='vgg', verbose=False).cuda()
+            sim_size = [s//2 for s in a.size]
+            img_in = F.interpolate(img_in, sim_size, mode='bicubic', align_corners=True).float()
+        else:
+            del img_in
+        del in_sliced; torch.cuda.empty_cache()
+        out_name.append(basename(a.in_img).replace(' ', '_'))
+
+    if a.verbose is True: print(' samples:', a.samples)
+    out_name = '-'.join(out_name)
+    out_name += '-%s' % a.model if 'RN' in a.model.upper() else ''
+    tempdir = os.path.join(a.out_dir, out_name)
+    os.makedirs(tempdir, exist_ok=True)
+
     prev_enc = 0
     def train(i):
         loss = 0
         
         noise = a.noise * torch.rand(1, 1, *params[0].shape[2:4], 1).cuda() if a.noise > 0 else None
         img_out = image_f(noise)
-        img_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align, macro=a.macro)[0]
+        img_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align, a.macro)[0]
         out_enc = model_clip.encode_image(img_sliced)
 
         if a.in_txt is not None: # input text
-            loss +=  sign * torch.cosine_similarity(txt_enc, out_enc, dim=-1).mean()
+            loss +=  sign * sim_func(txt_enc, out_enc, a.sim)
             if a.notext > 0:
-                loss -= sign * a.notext * torch.cosine_similarity(txt_plot_enc, out_enc, dim=-1).mean()
+                loss -= sign * a.notext * sim_func(txt_plot_enc, out_enc, a.sim)
         if a.in_txt2 is not None: # input text - style
-            loss +=  sign * 0.5 * torch.cosine_similarity(txt_enc2, out_enc, dim=-1).mean()
+            loss +=  sign * a.weight2 * sim_func(txt_enc2, out_enc, a.sim)
         if a.in_txt0 is not None: # subtract text
-            loss += -sign * torch.cosine_similarity(txt_enc0, out_enc, dim=-1).mean()
+            loss += -sign * 0.3 * sim_func(txt_enc0, out_enc, a.sim)
         if a.in_img is not None and os.path.isfile(a.in_img): # input image
-            loss +=  sign * 0.5 * torch.cosine_similarity(img_enc, out_enc, dim=-1).mean()
+            loss +=  sign * 0.5 * sim_func(img_enc, out_enc, a.sim)
         if a.sync > 0 and a.in_img is not None and os.path.isfile(a.in_img): # image composition
             prog_sync = (a.steps // a.fstep - i) / (a.steps // a.fstep)
-            loss += prog_sync * a.sync * sim_loss(F.interpolate(img_out, sim_size).float(), img_in, normalize=True).squeeze()
+            loss += prog_sync * a.sync * sim_loss(F.interpolate(img_out, sim_size, mode='bicubic', align_corners=True).float(), img_in, normalize=True).squeeze()
         if a.sharp != 0 and a.dwt is not True: # scharr|sobel|default
-            loss -= a.sharp * derivat(img_out, mode='sobel')
+            loss -= a.sharp * derivat(img_out, mode='naiv')
             # loss -= a.sharp * derivat(img_sliced, mode='scharr')
-        if a.diverse != 0:
-            img_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, trform_f, a.align, macro=a.macro)[0]
+        if a.enforce != 0:
+            img_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, trform_f, a.align, a.macro)[0]
             out_enc2 = model_clip.encode_image(img_sliced)
-            loss += a.diverse * torch.cosine_similarity(out_enc, out_enc2, dim=-1).mean()
+            loss -= a.enforce * sim_func(out_enc, out_enc2, a.sim)
             del out_enc2; torch.cuda.empty_cache()
         if a.expand > 0:
             global prev_enc
             if i > 0:
-                loss += a.expand * torch.cosine_similarity(out_enc, prev_enc, dim=-1).mean()
-            prev_enc = out_enc.detach()
+                loss += a.expand * sim_func(out_enc, prev_enc, a.sim)
+            prev_enc = out_enc.detach() # .clone()
 
         del img_out, img_sliced, out_enc; torch.cuda.empty_cache()
         assert not isinstance(loss, int), ' Loss not defined, check the inputs'
@@ -350,112 +461,6 @@ def main():
                 img = img ** (1 + a.sharp/2.)
             checkout(img, os.path.join(tempdir, '%04d.jpg' % (i // a.fstep)), verbose=a.verbose)
             pbar.upd()
-
-    # Load CLIP models
-    model_clip, _ = clip.load(a.model, jit=old_torch())
-    try:
-        a.modsize = model_clip.visual.input_resolution 
-    except:
-        a.modsize = 288 if a.model == 'RN50x4' else 384 if a.model == 'RN50x16' else 224
-    if a.verbose is True: print(' using model', a.model)
-    xmem = {'ViT-B/16':0.25, 'RN50':0.5, 'RN50x4':0.16, 'RN50x16':0.06, 'RN101':0.33}
-    if a.model in xmem.keys():
-        a.samples = int(a.samples * xmem[a.model])
-            
-    if a.multilang is True:
-        model_lang = SentenceTransformer('clip-ViT-B-32-multilingual-v1').cuda()
-
-    def enc_text(txt):
-        if a.multilang is True:
-            emb = model_lang.encode([txt], convert_to_tensor=True, show_progress_bar=False)
-        else:
-            emb = model_clip.encode_text(clip.tokenize(txt).cuda())
-        return emb.detach().clone()
-    
-    if a.diverse != 0:
-        a.samples = int(a.samples * 0.5)
-    if a.sync > 0:
-        a.samples = int(a.samples * 0.5)
-            
-    if a.transform is True:
-        # trform_f = transforms.transforms_custom  
-        trform_f = transforms.transforms_elastic
-        a.samples = int(a.samples * 0.95)
-    else:
-        trform_f = transforms.normalize()
-
-    out_name = []
-    if a.in_txt is not None:
-        if a.verbose is True: print(' topic text: ', basename(a.in_txt))
-        if a.translate:
-            translator = Translator()
-            a.in_txt = translator.translate(a.in_txt, dest='en').text
-            if a.verbose is True: print(' translated to:', a.in_txt) 
-        txt_enc = enc_text(a.in_txt)
-        out_name.append(txt_clean(a.in_txt))
-
-        if a.notext > 0:
-            txt_plot = torch.from_numpy(plot_text(a.in_txt, a.modsize)/255.).unsqueeze(0).permute(0,3,1,2).cuda()
-            txt_plot_enc = model_clip.encode_image(txt_plot).detach().clone()
-
-    if a.in_txt2 is not None:
-        if a.verbose is True: print(' style text:', basename(a.in_txt2))
-        a.samples = int(a.samples * 0.75)
-        if a.translate:
-            translator = Translator()
-            a.in_txt2 = translator.translate(a.in_txt2, dest='en').text
-            if a.verbose is True: print(' translated to:', a.in_txt2) 
-        txt_enc2 = enc_text(a.in_txt2)
-        out_name.append(txt_clean(a.in_txt2))
-
-    if a.in_txt0 is not None:
-        if a.verbose is True: print(' subtract text:', basename(a.in_txt0))
-        a.samples = int(a.samples * 0.75)
-        if a.translate:
-            translator = Translator()
-            a.in_txt0 = translator.translate(a.in_txt0, dest='en').text
-            if a.verbose is True: print(' translated to:', a.in_txt0) 
-        txt_enc0 = enc_text(a.in_txt0)
-        out_name.append('off-' + txt_clean(a.in_txt0))
-
-    if a.multilang is True: del model_lang
-
-    if a.in_img is not None and os.path.isfile(a.in_img):
-        if a.verbose is True: print(' ref image:', basename(a.in_img))
-        img_in = torch.from_numpy(img_read(a.in_img)/255.).unsqueeze(0).permute(0,3,1,2).cuda()
-        img_in = img_in[:,:3,:,:] # fix rgb channels
-        in_sliced = slice_imgs([img_in], a.samples, a.modsize, transforms.normalize(), a.align)[0]
-        img_enc = model_clip.encode_image(in_sliced).detach().clone()
-        if a.sync > 0:
-            sim_loss = lpips.LPIPS(net='vgg', verbose=False).cuda()
-            sim_size = [s//2 for s in a.size]
-            img_in = F.interpolate(img_in, sim_size).float()
-        else:
-            del img_in
-        del in_sliced; torch.cuda.empty_cache()
-        out_name.append(basename(a.in_img).replace(' ', '_'))
-
-    shape = [1, 3, *a.size]
-    if a.dwt is True:
-        params, image_f, sz = dwt_image(shape, a.wave, a.sharp, a.colors, a.resume)
-    else:
-        params, image_f, sz = fft_image(shape, 0.01, a.decay, a.resume)
-    if sz is not None: a.size = sz
-    image_f = to_valid_rgb(image_f, colors = a.colors)
-
-    if a.prog is True:
-        lr1 = a.lrate * 2
-        lr0 = lr1 * 0.01
-    else:
-        lr0 = a.lrate
-    optimizer = torch.optim.AdamW(params, lr0, weight_decay=0.01, amsgrad=True)
-    sign = 1. if a.invert is True else -1.
-
-    if a.verbose is True: print(' samples:', a.samples)
-    out_name = '-'.join(out_name)
-    out_name += '-%s' % a.model if 'RN' in a.model.upper() else ''
-    tempdir = os.path.join(a.out_dir, out_name)
-    os.makedirs(tempdir, exist_ok=True)
 
     pbar = ProgressBar(a.steps // a.fstep)
     for i in range(a.steps):

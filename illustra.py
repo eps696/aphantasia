@@ -55,7 +55,8 @@ def get_args():
     parser.add_argument(       '--decay',   default=1.5, type=float)
     parser.add_argument('-sh', '--sharp',   default=0.3, type=float)
     parser.add_argument('-mm', '--macro',   default=0.4, type=float, help='Endorse macro forms 0..1 ')
-    parser.add_argument('-e',  '--enhance', default=0, type=float, help='Enhance consistency, boosts training')
+    parser.add_argument('-e',  '--enforce', default=0, type=float, help='Enforce details (by boosting similarity between two parallel samples)')
+    parser.add_argument('-x',  '--expand',  default=0, type=float, help='Boosts diversity (by enforcing difference between prev/next samples)')
     parser.add_argument('-n',  '--noise',   default=0.2, type=float, help='Add noise to suppress accumulation')
     parser.add_argument('-nt', '--notext',  default=0, type=float, help='Subtract typed text as image (avoiding graffiti?), [0..1]') # 0.15
     a = parser.parse_args()
@@ -63,8 +64,6 @@ def get_args():
     if a.size is not None: a.size = [int(s) for s in a.size.split('-')][::-1]
     if len(a.size)==1: a.size = a.size * 2
     if a.multilang is True: a.model = 'ViT-B/32' # sbert model is trained with ViT
-    a.diverse = -a.enhance
-    a.expand = abs(a.enhance)
     return a
 
 def ema(base, next, step):
@@ -104,7 +103,7 @@ def main():
             emb = model_clip.encode_text(clip.tokenize(txt).cuda())
         return emb.detach().clone()
     
-    if a.diverse != 0:
+    if a.enforce != 0:
         a.samples = int(a.samples * 0.5)
             
     if a.transform is True:
@@ -196,10 +195,10 @@ def main():
             if a.sharp != 0: # mode = scharr|sobel|default
                 loss -= a.sharp * derivat(img_out, mode='sobel')
                 # loss -= a.sharp * derivat(img_sliced, mode='scharr')
-            if a.diverse != 0:
+            if a.enforce != 0:
                 img_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, trform_f, a.align, macro=a.macro)[0]
                 out_enc2 = model_clip.encode_image(img_sliced)
-                loss += a.diverse * torch.cosine_similarity(out_enc, out_enc2, dim=-1).mean()
+                loss -= a.enforce * torch.cosine_similarity(out_enc, out_enc2, dim=-1).mean()
                 del out_enc2; torch.cuda.empty_cache()
             if a.expand > 0:
                 global prev_enc
