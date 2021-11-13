@@ -1,10 +1,14 @@
 # coding: UTF-8
 import os
 import math
+import time
 from imageio import imread, imsave
 import cv2
-import scipy
 import numpy as np
+import collections
+import scipy
+from scipy.ndimage import gaussian_filter
+from scipy.interpolate import CubicSpline as CubSpline
 import matplotlib.pyplot as plt
 from kornia.filters.sobel import spatial_gradient
 
@@ -86,6 +90,32 @@ def checkout(img, fname=None, verbose=False):
     if fname is not None:
         img = np.clip(img*255, 0, 255).astype(np.uint8)
         imsave(fname, img)
+
+def save_cfg(args, dir='./', file='config.txt'):
+    if dir != '':
+        os.makedirs(dir, exist_ok=True)
+    try: args = vars(args)
+    except: pass
+    if file is None:
+        print_dict(args)
+    else:
+        with open(os.path.join(dir, file), 'w') as cfg_file:
+            print_dict(args, cfg_file)
+
+def print_dict(dict, file=None, path="", indent=''):
+    for k in sorted(dict.keys()):
+        if isinstance(dict[k], collections.abc.Mapping):
+            if file is None:
+                print(indent + str(k))
+            else:
+                file.write(indent + str(k) + ' \n')
+            path = k if path=="" else path + "->" + k
+            print_dict(dict[k], file, path, indent + '   ')
+        else:
+            if file is None:
+                print('%s%s: %s' % (indent, str(k), str(dict[k])))
+            else:
+                file.write('%s%s: %s \n' % (indent, str(k), str(dict[k])))
 
 def minmax(x, torch=True):
     if torch:
@@ -179,8 +209,11 @@ def slice_imgs(imgs, count, size=224, transform=None, align='uniform', macro=0.)
     
     sz = [img.shape[2:] for img in imgs]
     sz_max = [torch.min(torch.tensor(s)) for s in sz]
-    if align == 'overscan': # add space
-        sz = [[2*s[0], 2*s[1]] for s in list(sz)]
+    if 'over' in align: # expand frame to sample outside 
+        if align == 'overmax':
+            sz = [[2*s[0], 2*s[1]] for s in list(sz)]
+        else:
+            sz = [[int(1.5*s[0]), int(1.5*s[1])] for s in list(sz)]
         imgs = [pad_up_to(imgs[i], sz[i], type='centr') for i in range(len(imgs))]
 
     sliced = []
@@ -214,3 +247,131 @@ def derivat(img, mode='sobel'):
         dy = torch.mean(torch.abs(img[:,:,1:,:] - img[:,:,:-1,:]))
         return 0.5 * (dx+dy)
 
+def dot_compare(v1, v2, cossim_pow=0):
+    dot = (v1 * v2).sum()
+    mag = torch.sqrt(torch.sum(v2**2))
+    cossim = dot/(1e-6 + mag)
+    return dot * cossim ** cossim_pow
+
+def sim_func(v1, v2, type=None):
+    if type is not None and 'mix' in type: # mixed
+        coss = torch.cosine_similarity(v1, v2, dim=-1).mean()
+        v1 = F.normalize(v1, dim=-1)
+        v2 = F.normalize(v2, dim=-1)
+        spher = torch.abs((v1 - v2).norm(dim=-1).div(2).arcsin().pow(2).mul(2)).mean()
+        return coss - 0.25 * spher
+    elif type is not None and 'spher' in type: # spherical
+        # from https://colab.research.google.com/drive/1ED6_MYVXTApBHzQObUPaaMolgf9hZOOF
+        v1 = F.normalize(v1, dim=-1)
+        v2 = F.normalize(v2, dim=-1)
+        # return 1 - torch.abs((v1 - v2).norm(dim=-1).div(2).arcsin().pow(2).mul(2)).mean()
+        return (v1 - v2).norm(dim=-1).div(2).arcsin().pow(2).mul(2)
+    elif type is not None and 'ang' in type: # angular
+        # return 1 - torch.acos(torch.cosine_similarity(v1, v2, dim=-1).mean()) / np.pi
+        return 1 - torch.acos(torch.cosine_similarity(v1, v2, dim=-1)).mean() / np.pi
+    elif type is not None and 'dot' in type: # dot compare cossim from lucent inversion
+        return dot_compare(v1, v2, cossim_pow=1) # decrease pow if nan (black output)
+    else:
+        return torch.cosine_similarity(v1, v2, dim=-1).mean()
+
+# = = = = = = = = = = = = = = = = = = = = = = = = = = = 
+
+def get_z(shape, rnd, uniform=False):
+    if uniform:
+        return rnd.uniform(0., 1., shape)
+    else:
+        return rnd.randn(*shape) # *x unpacks tuple/list to sequence
+
+def smoothstep(x, NN=1., xmin=0., xmax=1.):
+    N = math.ceil(NN)
+    x = np.clip((x - xmin) / (xmax - xmin), 0, 1)
+    result = 0
+    for n in range(0, N+1):
+         result += scipy.special.comb(N+n, n) * scipy.special.comb(2*N+1, N-n) * (-x)**n
+    result *= x**(N+1)
+    if NN != N: result = (x + result) / 2
+    return result
+
+def lerp(z1, z2, num_steps, smooth=0.): 
+    vectors = []
+    xs = [step / (num_steps - 1) for step in range(num_steps)]
+    if smooth > 0: xs = [smoothstep(x, smooth) for x in xs]
+    for x in xs:
+        interpol = z1 + (z2 - z1) * x
+        vectors.append(interpol)
+    return np.array(vectors)
+
+# interpolate on hypersphere
+def slerp_np(z1, z2, num_steps, smooth=0.):
+    z1_norm = np.linalg.norm(z1)
+    z2_norm = np.linalg.norm(z2)
+    z2_normal = z2 * (z1_norm / z2_norm)
+    vectors = []
+    xs = [step / (num_steps - 1) for step in range(num_steps)]
+    if smooth > 0: xs = [smoothstep(x, smooth) for x in xs]
+    for x in xs:
+        interplain = z1 + (z2 - z1) * x
+        interp = z1 + (z2_normal - z1) * x
+        interp_norm = np.linalg.norm(interp)
+        interpol_normal = interplain * (z1_norm / interp_norm)
+        # interpol_normal = interp * (z1_norm / interp_norm)
+        vectors.append(interpol_normal)
+    return np.array(vectors)
+
+def cublerp(points, steps, fstep, looped=True):
+    keys = np.array([i*fstep for i in range(steps)] + [steps*fstep])
+    last_pt_num = 0 if looped is True else -1
+    points = np.concatenate((points, np.expand_dims(points[last_pt_num], 0)))
+    cspline = CubSpline(keys, points)
+    return cspline(range(steps*fstep+1))
+
+# = = = = = = = = = = = = = = = = = = = = = = = = = = = 
+    
+def latent_anima(shape, frames, transit, key_latents=None, smooth=0.5, uniform=False, cubic=False, gauss=False, start_lat=None, seed=None, looped=True, verbose=False):
+    if key_latents is None:
+        transit = int(max(1, min(frames, transit)))
+    steps = max(1, int(frames // transit))
+    log = ' timeline: %d steps by %d' % (steps, transit)
+
+    if seed is None:
+        seed = np.random.seed(int((time.time()%1) * 9999))
+    rnd = np.random.RandomState(seed)
+    
+    # make key points
+    if key_latents is None:
+        key_latents = np.array([get_z(shape, rnd, uniform) for i in range(steps)])
+    if start_lat is not None:
+        key_latents[0] = start_lat
+
+    latents = np.expand_dims(key_latents[0], 0)
+    
+    # populate lerp between key points
+    if transit == 1:
+        latents = key_latents
+    else:
+        if cubic:
+            latents = cublerp(key_latents, steps, transit, looped)
+            log += ', cubic'
+        else:
+            for i in range(steps):
+                zA = key_latents[i]
+                lat_num = (i+1)%steps if looped is True else min(i+1, steps-1)
+                zB = key_latents[lat_num]
+                if uniform is True:
+                    interps_z = lerp(zA, zB, transit, smooth=smooth)
+                else:
+                    interps_z = slerp_np(zA, zB, transit, smooth=smooth)
+                latents = np.concatenate((latents, interps_z))
+    latents = np.array(latents)
+    
+    if gauss:
+        lats_post = gaussian_filter(latents, [transit, 0, 0], mode="wrap")
+        lats_post = (lats_post / np.linalg.norm(lats_post, axis=-1, keepdims=True)) * math.sqrt(np.prod(shape))
+        log += ', gauss'
+        latents = lats_post
+        
+    if verbose: print(log)
+    if latents.shape[0] > frames: # extra frame
+        latents = latents[1:]
+    return latents
+    
