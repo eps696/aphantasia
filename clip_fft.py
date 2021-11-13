@@ -40,7 +40,7 @@ def get_args():
     parser.add_argument(       '--out_dir', default='_out')
     parser.add_argument('-s',  '--size',    default='1280-720', help='Output resolution')
     parser.add_argument('-r',  '--resume',  default=None, help='Path to saved FFT snapshots, to resume from')
-    parser.add_argument(       '--fstep',   default=1, type=int, help='Saving step')
+    parser.add_argument('-opt', '--opt_step', default=1, type=int, help='How many optimizing steps per save step')
     parser.add_argument('-tr', '--translate', action='store_true', help='Translate text with Google Translate')
     parser.add_argument('-ml', '--multilang', action='store_true', help='Use SBERT multilanguage model for text')
     parser.add_argument(       '--save_pt', action='store_true', help='Save FFT snapshots for further use')
@@ -423,7 +423,7 @@ def main():
         if a.in_img is not None and os.path.isfile(a.in_img): # input image
             loss +=  sign * 0.5 * sim_func(img_enc, out_enc, a.sim)
         if a.sync > 0 and a.in_img is not None and os.path.isfile(a.in_img): # image composition
-            prog_sync = (a.steps // a.fstep - i) / (a.steps // a.fstep)
+            prog_sync = (a.steps // a.opt_step - i) / (a.steps // a.opt_step)
             loss += prog_sync * a.sync * sim_loss(F.interpolate(img_out, sim_size, mode='bicubic', align_corners=True).float(), img_in, normalize=True).squeeze()
         if a.sharp != 0 and a.dwt is not True: # scharr|sobel|default
             loss -= a.sharp * derivat(img_out, mode='naiv')
@@ -451,7 +451,7 @@ def main():
         loss.backward()
         optimizer.step()
 
-        if i % a.fstep == 0:
+        if i % a.opt_step == 0:
             with torch.no_grad():
                 img = image_f(contrast=a.contrast).cpu().numpy()[0]
             # empirical tone mapping
@@ -459,10 +459,10 @@ def main():
                 img = img **1.3
             elif a.sharp != 0:
                 img = img ** (1 + a.sharp/2.)
-            checkout(img, os.path.join(tempdir, '%04d.jpg' % (i // a.fstep)), verbose=a.verbose)
+            checkout(img, os.path.join(tempdir, '%04d.jpg' % (i // a.opt_step)), verbose=a.verbose)
             pbar.upd()
 
-    pbar = ProgressBar(a.steps // a.fstep)
+    pbar = ProgressBar(a.steps // a.opt_step)
     for i in range(a.steps):
         train(i)
 
