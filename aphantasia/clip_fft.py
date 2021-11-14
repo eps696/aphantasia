@@ -24,13 +24,13 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 from sentence_transformers import SentenceTransformer
 import lpips
 
-from utils import slice_imgs, derivat, sim_func, basename, img_list, img_read, plot_text, txt_clean, checkout, old_torch
-import transforms
+from aphantasia.utils import slice_imgs, derivat, sim_func, basename, img_list, img_read, plot_text, txt_clean, checkout, old_torch
+from aphantasia import transforms
 try: # progress bar for notebooks 
     get_ipython().__class__.__name__
-    from progress_bar import ProgressIPy as ProgressBar
+    from aphantasia.progress_bar import ProgressIPy as ProgressBar
 except: # normal console
-    from progress_bar import ProgressBar
+    from aphantasia.progress_bar import ProgressBar
 
 clip_models = ['ViT-B/16', 'ViT-B/32', 'RN101', 'RN50x16', 'RN50x4', 'RN50']
 
