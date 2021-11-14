@@ -48,7 +48,9 @@ def get_args():
     parser.add_argument('-tr', '--translate', action='store_true', help='Translate text with Google Translate')
     parser.add_argument('-ml', '--multilang', action='store_true', help='Use SBERT multilanguage model for text')
     parser.add_argument(       '--save_pt', action='store_true', help='Save FFT snapshots for further use')
-    parser.add_argument('-v',  '--verbose', default=True, type=bool)
+    parser.add_argument('-v',  '--verbose',    dest='verbose', action='store_true')
+    parser.add_argument(       '--no-verbose', dest='verbose', action='store_false')
+    parser.set_defaults(verbose=True)
     # training
     parser.add_argument('-m',  '--model',   default='ViT-B/32', choices=clip_models, help='Select CLIP model to use')
     parser.add_argument(       '--steps',   default=200, type=int, help='Total iterations')
