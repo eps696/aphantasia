@@ -5,7 +5,11 @@ import argparse
 import numpy as np
 from imageio import imread, imsave
 import shutil
-from googletrans import Translator, constants
+try:
+    from googletrans import Translator, constants
+except ImportError as e:
+    print("--> Not running with googletrans support", e)
+    pass
 
 import pywt
 from pytorch_wavelets import DWTForward, DWTInverse
@@ -441,7 +445,7 @@ def main():
 
         del img_out, img_sliced, out_enc; torch.cuda.empty_cache()
         assert not isinstance(loss, int), ' Loss not defined, check the inputs'
-        
+
         if a.prog is True:
             lr_cur = lr0 + (i / a.steps) * (lr1 - lr0)
             for g in optimizer.param_groups: 
