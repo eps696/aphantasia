@@ -6,7 +6,7 @@ setup(
     description='A example Python package',
     url='https://github.com/eps696/aphantasia',
     author='vadim epstein',
-    packages=[],
+    packages=['aphantasia'],
     install_requires=[],
     classifiers=[],
 )
