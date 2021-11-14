@@ -298,7 +298,6 @@ def main():
                     params, image_f, _ = fft_image([1, 3, *a.size], sd=1, resume=params_tmp)
 
                 optimizer = torch.optim.Adam(params, a.lrate)
-                # optimizer = torch.optim.AdamW(params, a.lrate, weight_decay=0.01)
                 # optimizer = torch.optim.AdamW(params, a.lrate, weight_decay=0.01, amsgrad=True)
                 image_f = to_valid_rgb(image_f, colors = a.colors)
                 del img_tmp
@@ -307,7 +306,6 @@ def main():
                     optimizer.load_state_dict(opt_state)
 
             noise = a.noise * (torch.rand(1, 1, a.size[0], a.size[1]//2+1, 1)-0.5).cuda() if a.noise>0 else 0.
-            # noise = a.noise * torch.randn(1, 1, a.size[0], a.size[1]//2+1, 1).cuda() if a.noise>0 else 0.
             img_out = image_f(noise)
             
             img_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align, a.macro)[0]
