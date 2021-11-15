@@ -269,7 +269,7 @@ def main():
             if a.verbose is True: cvshow(img)
             pbar.upd()
 
-    os.system('ffmpeg -v warning -y -i %s\%%05d.jpg "%s.mp4"' % (tempdir, os.path.join(a.out_dir, basename(a.in_txt))))
+    os.system('ffmpeg -v warning -y -i %s/\%%05d.jpg "%s.mp4"' % (tempdir, os.path.join(a.out_dir, basename(a.in_txt))))
     if a.keep > 0: os.remove('init.pt')
 
 

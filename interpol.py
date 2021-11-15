@@ -57,7 +57,7 @@ def main():
             if a.verbose is True: cvshow(img)
             pbar.upd()
 
-    os.system('ffmpeg -v warning -y -i %s\%%05d.jpg "%s-pts.mp4"' % (tempdir, a.in_dir))
+    os.system('ffmpeg -v warning -y -i %s/\%%05d.jpg "%s-pts.mp4"' % (tempdir, a.in_dir))
 
 
 if __name__ == '__main__':

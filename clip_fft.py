@@ -468,7 +468,7 @@ def main():
     for i in range(a.steps):
         train(i)
 
-    os.system('ffmpeg -v warning -y -i %s\%%04d.jpg "%s.mp4"' % (tempdir, os.path.join(a.out_dir, out_name)))
+    os.system('ffmpeg -v warning -y -i %s/\%%04d.jpg "%s.mp4"' % (tempdir, os.path.join(a.out_dir, out_name)))
     shutil.copy(img_list(tempdir)[-1], os.path.join(a.out_dir, '%s-%d.jpg' % (out_name, a.steps)))
     if a.save_pt is True:
         torch.save(params, '%s.pt' % os.path.join(a.out_dir, out_name))
