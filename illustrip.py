@@ -365,7 +365,7 @@ def main():
     except KeyboardInterrupt:
         pass
 
-    os.system('ffmpeg -v warning -y -i %s\%%06d.jpg "%s.mp4"' % (tempdir, os.path.join(workdir, workname)))
+    os.system('ffmpeg -v warning -y -i %s/\%%06d.jpg "%s.mp4"' % (tempdir, os.path.join(workdir, workname)))
 
 
 if __name__ == '__main__':
