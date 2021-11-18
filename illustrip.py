@@ -347,7 +347,7 @@ def main():
                 if a.smooth is True:
                     opt_state = optimizer.state_dict()
 
-            if ii % a.opt_step == 0:
+            # if ii % a.opt_step == 0:
                 with torch.no_grad():
                     img_t = image_f(contrast=a.contrast)[0].permute(1,2,0)
                     img = torch.clip(img_t*255, 0, 255).cpu().numpy().astype(np.uint8)
