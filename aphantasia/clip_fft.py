@@ -8,7 +8,8 @@ import shutil
 try:
     from googletrans import Translator, constants
 except ImportError as e:
-    print("--> Not running with googletrans support", e)
+    # print("--> Not running with googletrans support", e)
+    # googletrans optional (not needed if Translation not used)
     pass
 
 import pywt
