@@ -83,7 +83,7 @@ def get_args():
     if a.multilang is True: a.model = 'ViT-B/32' # sbert model is trained with ViT
     return a
 
-### FFT from Lucent library ###  https://github.com/greentfrapp/lucent
+### DWT [wavelets]
 
 def to_valid_rgb(image_f, colors=1., decorrelate=True):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -170,6 +170,8 @@ def img2dwt(img_in, wave='coif2', sharp=0.3, colors=1.):
     for i in range(len(Ys)-1):
         Ys[i+1] /= scale[i]
     return Ys
+
+### FFT/RGB from Lucent library ###  https://github.com/greentfrapp/lucent
 
 def pixel_image(shape, resume=None, sd=1., *noargs, **nokwargs):
     size = None
@@ -472,7 +474,7 @@ def main():
     for i in range(a.steps):
         train(i)
 
-    os.system('ffmpeg -v warning -y -i %s\%%04d.jpg "%s.mp4"' % (tempdir, os.path.join(a.out_dir, out_name)))
+    os.system('ffmpeg -v warning -y -i %s/\%%04d.jpg "%s.mp4"' % (tempdir, os.path.join(a.out_dir, out_name)))
     shutil.copy(img_list(tempdir)[-1], os.path.join(a.out_dir, '%s-%d.jpg' % (out_name, a.steps)))
     if a.save_pt is True:
         torch.save(params, '%s.pt' % os.path.join(a.out_dir, out_name))
