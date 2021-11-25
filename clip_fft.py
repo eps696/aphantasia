@@ -12,10 +12,6 @@ except ImportError as e:
     # googletrans optional (not needed if Translation not used)
     pass
 
-import pywt
-from pytorch_wavelets import DWTForward, DWTInverse
-# from pytorch_wavelets import DTCWTForward, DTCWTInverse
-
 import torch
 import torchvision
 import torch.nn.functional as F

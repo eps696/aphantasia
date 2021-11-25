@@ -2,6 +2,10 @@ import torch
 import numpy as np
 from aphantasia.utils import old_torch
 
+import pywt
+from pytorch_wavelets import DWTForward, DWTInverse
+# from pytorch_wavelets import DTCWTForward, DTCWTInverse
+
 def to_valid_rgb(image_f, colors=1., decorrelate=True):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     color_correlation_svd_sqrt = np.asarray([[0.26, 0.09, 0.02], [0.27, 0.00, -0.05], [0.27, -0.09, 0.03]]).astype("float32")
