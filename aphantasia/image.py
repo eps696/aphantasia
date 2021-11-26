@@ -3,6 +3,7 @@ import numpy as np
 from aphantasia.utils import old_torch
 
 import os
+from aphantasia.utils import slice_imgs, derivat, sim_func, basename, img_list, img_read, plot_text
 import pywt
 from pytorch_wavelets import DWTForward, DWTInverse
 # from pytorch_wavelets import DTCWTForward, DTCWTInverse
