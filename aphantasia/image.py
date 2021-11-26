@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from aphantasia.utils import old_torch
 
+import os
 import pywt
 from pytorch_wavelets import DWTForward, DWTInverse
 # from pytorch_wavelets import DTCWTForward, DTCWTInverse
