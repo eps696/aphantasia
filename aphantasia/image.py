@@ -6,6 +6,7 @@ import os
 from aphantasia.utils import slice_imgs, derivat, sim_func, basename, img_list, img_read, plot_text
 import pywt
 from pytorch_wavelets import DWTForward, DWTInverse
+from imageio import imread
 # from pytorch_wavelets import DTCWTForward, DTCWTInverse
 
 def to_valid_rgb(image_f, colors=1., decorrelate=True):
