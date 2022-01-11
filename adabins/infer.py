@@ -1,5 +1,6 @@
-import glob
 import os
+import sys
+import glob
 
 import numpy as np
 import torch
@@ -8,18 +9,16 @@ from PIL import Image
 from torchvision import transforms
 from tqdm import tqdm
 
+sys.path.append(os.path.join(os.path.dirname(__file__)))
 import model_io
 import utils
 from models import UnetAdaptiveBins
 
-
 def _is_pil_image(img):
     return isinstance(img, Image.Image)
 
-
 def _is_numpy_image(img):
     return isinstance(img, np.ndarray) and (img.ndim in {2, 3})
-
 
 class ToTensor(object):
     def __init__(self):

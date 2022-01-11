@@ -329,8 +329,8 @@ def cublerp(points, steps, fstep, looped=True):
     
 def latent_anima(shape, frames, transit, key_latents=None, smooth=0.5, uniform=False, cubic=False, gauss=False, start_lat=None, seed=None, looped=True, verbose=False):
     if key_latents is None:
-        transit = int(max(1, min(frames, transit)))
-    steps = max(1, int(frames // transit))
+        transit = int(max(1, min(frames//2, transit)))
+    steps = max(1, math.ceil(frames / transit))
     log = ' timeline: %d steps by %d' % (steps, transit)
 
     if seed is None:
