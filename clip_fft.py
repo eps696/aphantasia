@@ -5,12 +5,12 @@ import argparse
 import numpy as np
 from imageio import imread, imsave
 import shutil
+
 try:
-    from googletrans import Translator, constants
+    from googletrans import Translator
+    googletrans_ok = True
 except ImportError as e:
-    # print("--> Not running with googletrans support", e)
-    # googletrans optional (not needed if Translation not used)
-    pass
+    googletrans_ok = False
 
 import torch
 import torchvision
@@ -47,7 +47,7 @@ def get_args():
     parser.add_argument('-ml', '--multilang', action='store_true', help='Use SBERT multilanguage model for text')
     parser.add_argument(       '--save_pt', action='store_true', help='Save FFT snapshots for further use')
     parser.add_argument('-v',  '--verbose',    dest='verbose', action='store_true')
-    parser.add_argument(       '--no-verbose', dest='verbose', action='store_false')
+    parser.add_argument('-nv', '--no-verbose', dest='verbose', action='store_false')
     parser.set_defaults(verbose=True)
     # training
     parser.add_argument('-m',  '--model',   default='ViT-B/32', choices=clip_models, help='Select CLIP model to use')
@@ -79,6 +79,9 @@ def get_args():
     if len(a.size)==1: a.size = a.size * 2
     if a.in_img is not None and a.sync != 0: a.align = 'overscan'
     if a.multilang is True: a.model = 'ViT-B/32' # sbert model is trained with ViT
+    if a.translate is True and googletrans_ok is not True: 
+        print('\n Install googletrans module to enable translation!'); exit()
+    
     return a
 
 def main():

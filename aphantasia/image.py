@@ -1,13 +1,14 @@
-import torch
-import numpy as np
-from aphantasia.utils import old_torch
-
 import os
-from aphantasia.utils import slice_imgs, derivat, sim_func, basename, img_list, img_read, plot_text
+import numpy as np
+from imageio import imread
+
 import pywt
 from pytorch_wavelets import DWTForward, DWTInverse
-from imageio import imread
 # from pytorch_wavelets import DTCWTForward, DTCWTInverse
+
+import torch
+
+from aphantasia.utils import slice_imgs, derivat, sim_func, basename, img_list, img_read, plot_text, old_torch
 
 def to_valid_rgb(image_f, colors=1., decorrelate=True):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")

@@ -4,7 +4,12 @@ import math
 import numpy as np
 import shutil
 from imageio import imsave
-from googletrans import Translator, constants
+
+try:
+    from googletrans import Translator
+    googletrans_ok = True
+except ImportError as e:
+    googletrans_ok = False
 
 import torch
 import torchvision
@@ -14,14 +19,14 @@ import clip
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 from sentence_transformers import SentenceTransformer
 
-from clip_fft import to_valid_rgb, fft_image
-from utils import slice_imgs, derivat, checkout, cvshow, pad_up_to, basename, file_list, img_list, img_read, txt_clean, plot_text, old_torch
-import transforms
+from aphantasia.image import to_valid_rgb, fft_image
+from aphantasia.utils import slice_imgs, derivat, checkout, cvshow, pad_up_to, basename, file_list, img_list, img_read, txt_clean, plot_text, old_torch
+from aphantasia import transforms
 try: # progress bar for notebooks 
     get_ipython().__class__.__name__
-    from progress_bar import ProgressIPy as ProgressBar
+    from aphantasia.progress_bar import ProgressIPy as ProgressBar
 except: # normal console
-    from progress_bar import ProgressBar
+    from aphantasia.progress_bar import ProgressBar
 
 clip_models = ['ViT-B/16', 'ViT-B/32', 'RN101', 'RN50x16', 'RN50x4', 'RN50']
 
@@ -64,6 +69,9 @@ def get_args():
     if a.size is not None: a.size = [int(s) for s in a.size.split('-')][::-1]
     if len(a.size)==1: a.size = a.size * 2
     if a.multilang is True: a.model = 'ViT-B/32' # sbert model is trained with ViT
+    if a.translate is True and googletrans_ok is not True: 
+        print('\n Install googletrans module to enable translation!'); exit()
+    
     return a
 
 def ema(base, next, step):

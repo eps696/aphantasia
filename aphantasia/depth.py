@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from torchvision import transforms as T
 from torchvision.transforms import functional as TF
 
-sys.path.append(os.path.join(os.path.dirname(__file__), 'adabins'))
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'adabins'))
 from infer import InferenceHelper
 
 def numpy2tensor(imgArray):

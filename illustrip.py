@@ -9,7 +9,12 @@ import shutil
 import PIL
 import time
 from imageio import imread, imsave
-from googletrans import Translator
+
+try:
+    from googletrans import Translator
+    googletrans_ok = True
+except ImportError as e:
+    googletrans_ok = False
 
 import torch
 import torchvision
@@ -19,16 +24,15 @@ from torchvision import transforms as T
 import clip
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
-from clip_fft import to_valid_rgb, fft_image, resume_fft, pixel_image
-from utils import slice_imgs, derivat, sim_func, slerp, basename, file_list, img_list, img_read, pad_up_to, txt_clean, latent_anima, cvshow, checkout, save_cfg, old_torch
-import transforms
-import depth
-
+from aphantasia.image import to_valid_rgb, fft_image, resume_fft, pixel_image
+from aphantasia.utils import slice_imgs, derivat, sim_func, slerp, basename, file_list, img_list, img_read, pad_up_to, txt_clean, latent_anima, cvshow, checkout, save_cfg, old_torch
+from aphantasia import transforms
+from aphantasia import depth
 try: # progress bar for notebooks 
     get_ipython().__class__.__name__
-    from progress_bar import ProgressIPy as ProgressBar
+    from aphantasia.progress_bar import ProgressIPy as ProgressBar
 except: # normal console
-    from progress_bar import ProgressBar
+    from aphantasia.progress_bar import ProgressBar
 
 clip_models = ['ViT-B/16', 'ViT-B/32', 'RN50', 'RN50x4', 'RN50x16', 'RN101']
 
@@ -56,7 +60,7 @@ def get_args():
     parser.add_argument(       '--samples', default=100, type=int, help='Samples to evaluate per frame')
     parser.add_argument('-lr', '--lrate',   default=1, type=float, help='Learning rate')
     # motion
-    parser.add_argument('-opt', '--opt_step', default=1, type=int, help='How many optimizing steps per save/transform step')
+    parser.add_argument('-ops', '--opt_step', default=1, type=int, help='How many optimizing steps per save/transform step')
     parser.add_argument('-sm', '--smooth',  action='store_true', help='Smoothen interframe jittering for FFT method')
     parser.add_argument('-it', '--interpol', default=True, help='Interpolate topics? (or change by cut)')
     parser.add_argument(       '--fstep',   default=100, type=int, help='How many frames before changing motion')
@@ -73,6 +77,7 @@ def get_args():
     # tweaks
     parser.add_argument('-a',  '--align',   default='overscan', choices=['central', 'uniform', 'overscan', 'overmax'], help='Sampling distribution')
     parser.add_argument('-tf', '--transform', default='custom', choices=['none', 'custom', 'elastic'], help='use augmenting transforms?')
+    parser.add_argument('-opt', '--optimizer', default='adam', choices=['adam', 'adamw'], help='Optimizer')
     parser.add_argument(       '--contrast', default=1.2, type=float)
     parser.add_argument(       '--colors',  default=2, type=float)
     parser.add_argument('-sh', '--sharp',   default=None, type=float)
@@ -96,6 +101,9 @@ def get_args():
     if a.sharp is None: a.sharp = -1. if a.gen == 'RGB' else 1.
     if a.model == 'ViT-B/16': a.sim = 'cossim'
 
+    if a.translate is True and googletrans_ok is not True: 
+        print('\n Install googletrans module to enable translation!'); exit()
+    
     return a
 
 def depth_transform(img_t, img_np, depth_infer, depth_mask, size, depthX=0, scale=1., shift=[0,0], colors=1, depth_dir=None, save_num=0):
@@ -341,8 +349,10 @@ def main():
                     params_tmp = torch.view_as_real(params_tmp)
                 params, image_f, _ = fft_image([1, 3, *a.size], sd=1, resume=params_tmp)
 
-            # optimizer = torch.optim.Adam(params, a.lrate)
-            optimizer = torch.optim.AdamW(params, a.lrate, weight_decay=0.01)
+            if a.optimizer.lower() == 'adamw':
+                optimizer = torch.optim.AdamW(params, a.lrate, weight_decay=0.01)
+            else:
+                optimizer = torch.optim.Adam(params, a.lrate)
             image_f = to_valid_rgb(image_f, colors = a.colors)
             del img_tmp, img_np
             
@@ -364,8 +374,8 @@ def main():
                 out_enc = model_clip.encode_image(img_sliced)
 
                 if a.gen == 'RGB': # empirical hack
-                    loss += 1.66 * abs(img_out.mean((2,3)) - 0.45).sum() # fix brightness
-                    loss += 1.66 * abs(img_out.std((2,3)) - 0.17).sum() # fix contrast
+                    loss += abs(img_out.mean((2,3)) - 0.45).sum() # fix brightness
+                    loss += abs(img_out.std((2,3)) - 0.17).sum() # fix contrast
 
                 if txt_enc is not None:
                     loss -= a.invert * sim_func(txt_enc, out_enc, a.sim)
