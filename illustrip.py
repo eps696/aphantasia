@@ -28,7 +28,6 @@ from aphantasia.image import to_valid_rgb, fft_image, resume_fft, pixel_image
 from aphantasia.utils import slice_imgs, derivat, sim_func, slerp, basename, file_list, img_list, img_read, pad_up_to, txt_clean, latent_anima, cvshow, checkout, save_cfg, old_torch
 from aphantasia import transforms
 from aphantasia import depth
-from adabins.infer import InferenceHelper as depth_helper
 try: # progress bar for notebooks 
     get_ipython().__class__.__name__
     from aphantasia.progress_bar import ProgressIPy as ProgressBar
@@ -159,8 +158,7 @@ def main():
         a.samples = int(a.samples * xmem[a.model])
 
     if a.depth > 0:
-        depth_infer = depth_helper(model_path=a.depth_model)
-        depth_mask = depth.init_depthmask(size=a.size, mask_path=a.depth_mask)
+        depth_infer, depth_mask = depth.init_adabins(size=a.size, model_path=a.depth_model, mask_path=a.depth_mask)
         if a.depth_dir is not None:
             os.makedirs(a.depth_dir, exist_ok=True)
             print(' depth dir:', a.depth_dir)
