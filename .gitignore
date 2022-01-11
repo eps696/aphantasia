@@ -4,6 +4,7 @@ _cudacache/
 .pytest_cache
 *.egg-info
 thumbs.db
+_out
 
 .ipynb_checkpoints
 
