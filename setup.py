@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name='aphantasia',
@@ -6,7 +6,8 @@ setup(
     description='CLIP + FFT/DWT/RGB text-to-image tools',
     url='https://github.com/eps696/aphantasia',
     author='vadim epstein',
-    packages=['aphantasia'],
+    # packages=['aphantasia'],
+    packages=find_packages(),
     install_requires=[],
     classifiers=[],
 )
