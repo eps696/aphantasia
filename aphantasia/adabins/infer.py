@@ -9,10 +9,9 @@ from PIL import Image
 from torchvision import transforms
 from tqdm import tqdm
 
-sys.path.append(os.path.join(os.path.dirname(__file__)))
-import model_io
-import utils
-from models import UnetAdaptiveBins
+from . import model_io
+from . import utils
+from .models import UnetAdaptiveBins
 
 def _is_pil_image(img):
     return isinstance(img, Image.Image)

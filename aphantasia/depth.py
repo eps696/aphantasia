@@ -12,6 +12,8 @@ import torch.nn.functional as F
 from torchvision import transforms as T
 from torchvision.transforms import functional as TF
 
+from .adabins.infer import InferenceHelper
+
 def numpy2tensor(imgArray):
     im = torch.unsqueeze(T.ToTensor()(imgArray), 0)
     return im
@@ -23,14 +25,15 @@ def save_img(img, fname=None):
     if fname is not None:
         imsave(fname, np.array(img))
 
-def init_depthmask(size, mask_path='lib/adabins/mask.jpg', mask_blur=33):
+def init_adabins(size, model_path, mask_path='lib/adabins/mask.jpg', mask_blur=33):
+    depth_infer = InferenceHelper(model_path)
     # mask for blending multi-crop depth 
     masksize = (830, 500) # it doesn't have to be this exact number, this is just the max for what works at 16:9 for each crop
     mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
     mask = cv2.resize(mask, masksize)
     mask = cv2.GaussianBlur(mask, (mask_blur,mask_blur),0)
     mask = cv2.resize(mask, (size[1]//2, size[0]//2)) / 255.
-    return mask
+    return depth_infer, mask
 
 def depthwarp(img, image, infer_helper, mask, size, strength, centre=[0,0], midpoint=0.5, rescale=0, clip_range=0, save_path=None, save_num=0, multicrop=True):
     ch, cw = size
