@@ -25,7 +25,7 @@ def save_img(img, fname=None):
     if fname is not None:
         imsave(fname, np.array(img))
 
-def init_adabins(size, model_path, mask_path='lib/adabins/mask.jpg', mask_blur=33):
+def init_adabins(size, model_path, mask_path='mask.jpg', mask_blur=33):
     depth_infer = InferenceHelper(model_path)
     # mask for blending multi-crop depth 
     masksize = (830, 500) # it doesn't have to be this exact number, this is just the max for what works at 16:9 for each crop

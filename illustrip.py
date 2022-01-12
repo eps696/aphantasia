@@ -27,7 +27,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 from aphantasia.image import to_valid_rgb, fft_image, resume_fft, pixel_image
 from aphantasia.utils import slice_imgs, derivat, sim_func, slerp, basename, file_list, img_list, img_read, pad_up_to, txt_clean, latent_anima, cvshow, checkout, save_cfg, old_torch
 from aphantasia import transforms
-from aphantasia import depth
+from depth import depth
 try: # progress bar for notebooks 
     get_ipython().__class__.__name__
     from aphantasia.progress_bar import ProgressIPy as ProgressBar
@@ -72,7 +72,7 @@ def get_args():
     # depth
     parser.add_argument('-d',  '--depth',   default=0, type=float, help='Add depth with such strength, if > 0')
     parser.add_argument(   '--depth_model', default='AdaBins_nyu.pt', help='AdaBins model path')
-    parser.add_argument(   '--depth_mask',  default='mask.jpg', help='depth mask path')
+    parser.add_argument(   '--depth_mask',  default='depth/mask.jpg', help='depth mask path')
     parser.add_argument(   '--depth_dir',   default=None, help='Directory to save depth, if not None')
     # tweaks
     parser.add_argument('-a',  '--align',   default='overscan', choices=['central', 'uniform', 'overscan', 'overmax'], help='Sampling distribution')
