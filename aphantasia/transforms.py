@@ -3,10 +3,12 @@
 
 import torch
 import torch.nn.functional as F
-from torchvision import transforms
+from torchvision import transforms as T
 import numpy as np
 import kornia
 import kornia.geometry.transform as K
+
+from .utils import old_torch
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -66,6 +68,18 @@ def random_rotate(angles, units="degrees"):
         return rotated_image
     return inner
 
+def random_rotate_fast(angles):
+    def inner(img):
+        angle = float(np.random.choice(angles))
+        size = img.shape[-2:]
+        if old_torch(): # 1.7.1
+            img = T.functional.affine(img, angle, [0,0], 1, 0, fillcolor=0, resample=PIL.Image.BILINEAR)
+        else: # 1.8+
+            img = T.functional.affine(img, angle, [0,0], 1, 0, fill=0, interpolation=T.InterpolationMode.BILINEAR)
+        img = T.functional.center_crop(img, size) # on 1.8+ also pads
+        return img
+    return inner
+
 def compose(transforms):
     def inner(x):
         for transform in transforms:
@@ -86,8 +100,8 @@ def _rads2angle(angle, units):
 def normalize():
     # ImageNet normalization for torchvision models
     # see https://pytorch.org/docs/stable/torchvision/models.html
-    # normal = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    normal = transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
+    # normal = T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    normal = T.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
     def inner(image_t):
         return torch.stack([normal(t) for t in image_t])
     return inner
@@ -130,7 +144,7 @@ transforms_openai = compose([
 
 transforms_elastic = compose([
     pad(4, mode="constant", constant_value=0.5),
-    transforms.RandomErasing(0.2),
+    T.RandomErasing(0.2),
     random_rotate(list(range(-30, 30)) + 20 * [0]),
     random_elastic(),
     jitter(8),
@@ -139,10 +153,17 @@ transforms_elastic = compose([
 
 transforms_custom = compose([
     pad(4, mode="constant", constant_value=0.5),
-    # transforms.RandomPerspective(0.33, 0.2),
-    # transforms.RandomErasing(0.2),
+    # T.RandomPerspective(0.33, 0.2),
+    # T.RandomErasing(0.2),
     random_rotate(list(range(-30, 30)) + 20 * [0]),
     jitter(8),
+    normalize()
+])
+
+transforms_fast = compose([
+    T.RandomPerspective(0.33, 0.2),
+    T.RandomErasing(0.2),
+    random_rotate_fast(list(range(-30, 30)) + 20 * [0]),
     normalize()
 ])
 
