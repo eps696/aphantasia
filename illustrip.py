@@ -76,7 +76,7 @@ def get_args():
     parser.add_argument(   '--depth_dir',   default=None, help='Directory to save depth, if not None')
     # tweaks
     parser.add_argument('-a',  '--align',   default='overscan', choices=['central', 'uniform', 'overscan', 'overmax'], help='Sampling distribution')
-    parser.add_argument('-tf', '--transform', default='fast', choices=['none', 'fast', 'custom', 'elastic'], help='use augmenting transforms?')
+    parser.add_argument('-tf', '--transform', default='fast', choices=['none', 'fast', 'custom', 'elastic'], help='augmenting transforms')
     parser.add_argument('-opt', '--optimizer', default='adam', choices=['adam', 'adamw'], help='Optimizer')
     parser.add_argument(       '--contrast', default=1.2, type=float)
     parser.add_argument(       '--colors',  default=2, type=float)
@@ -170,10 +170,10 @@ def main():
         a.samples = int(a.samples * 0.5)
 
     if 'elastic' in a.transform:
-        trform_f = transforms.transforms_elastic  
+        trform_f = transforms.transforms_elastic
         a.samples = int(a.samples * 0.95)
     elif 'custom' in a.transform:
-        trform_f = transforms.transforms_custom  
+        trform_f = transforms.transforms_custom
         a.samples = int(a.samples * 0.95)
     elif 'fast' in a.transform:
         trform_f = transforms.transforms_fast

@@ -63,7 +63,7 @@ python clip_fft.py -t "topic sentence" -t2 "style description" -t0 "avoid this" 
 `--decay X` (compositional softness), `--colors X` (saturation) and `--contrast X` may be useful, especially for ResNet models (they tend to burn the colors). 
 `--sharp X` may be useful to increase sharpness, if the image becomes "myopic" after increasing `decay`. it affects the other color parameters, better tweak them all together! 
 Current defaults are `--decay 1.5 --colors 1.5 --contrast 0.9 --sharp 0.3`.  
-`--transform` applies some augmentations, usually enhancing result (but slower).  
+`--transform X` applies some augmentations, usually enhancing result (but slower). there are few choices; `fast` seems optimal.  
 `--invert` negates the whole criteria, if you fancy checking "totally opposite".  
 `--save_pt myfile.pt` will save FFT/DWT parameters, to resume for next query with `--resume myfile.pt`. One can also start/resume directly from an image file.  
 `--opt_step N` tells to save every Nth frame (useful with high iterations, default is 1).  

@@ -60,7 +60,7 @@ def get_args():
     parser.add_argument('-w',  '--wave',    default='coif2', help='wavelets: db[1..], coif[1..], haar, dmey')
     # tweaks
     parser.add_argument('-a',  '--align',   default='uniform', choices=['central', 'uniform', 'overscan', 'overmax'], help='Sampling distribution')
-    parser.add_argument('-tf', '--transform', default='custom', choices=['none', 'custom', 'elastic'], help='use augmenting transforms?')
+    parser.add_argument('-tf', '--transform', default='fast', choices=['none', 'fast', 'custom', 'elastic'], help='augmenting transforms')
     parser.add_argument(       '--contrast', default=0.9, type=float)
     parser.add_argument(       '--colors',  default=1.5, type=float)
     parser.add_argument(       '--decay',   default=1.5, type=float)
@@ -130,10 +130,13 @@ def main():
         a.samples = int(a.samples * 0.5)
             
     if 'elastic' in a.transform:
-        trform_f = transforms.transforms_elastic  
+        trform_f = transforms.transforms_elastic
         a.samples = int(a.samples * 0.95)
     elif 'custom' in a.transform:
-        trform_f = transforms.transforms_custom  
+        trform_f = transforms.transforms_custom
+        a.samples = int(a.samples * 0.95)
+    elif 'fast' in a.transform:
+        trform_f = transforms.transforms_fast
         a.samples = int(a.samples * 0.95)
     else:
         trform_f = transforms.normalize()
