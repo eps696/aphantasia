@@ -52,7 +52,9 @@ def get_args():
     parser.add_argument(       '--out_dir', default='_out')
     parser.add_argument('-tr', '--translate', action='store_true', help='Translate with Google Translate')
     parser.add_argument(       '--invert',  action='store_true', help='Invert criteria')
-    parser.add_argument('-v',  '--verbose', default=True, type=bool)
+    parser.add_argument('-v',  '--verbose',    dest='verbose', action='store_true')
+    parser.add_argument('-nv', '--no-verbose', dest='verbose', action='store_false')
+    parser.set_defaults(verbose=True)
     # training
     parser.add_argument(       '--gen',     default='RGB', help='Generation (optimization) method: FFT or RGB')
     parser.add_argument('-m',  '--model',   default='ViT-B/32', choices=clip_models, help='Select CLIP model to use')
@@ -107,13 +109,13 @@ def get_args():
     return a
 
 def depth_transform(img_t, img_np, depth_infer, depth_mask, size, depthX=0, scale=1., shift=[0,0], colors=1, depth_dir=None, save_num=0):
-
+    if not isinstance(scale, float): scale = float(scale[0])
     # d X/Y define the origin point of the depth warp, effectively a "3D pan zoom", [-1..1]
     # plus = look ahead, minus = look aside
     dX = 100. * shift[0] / size[1]
     dY = 100. * shift[1] / size[0]
     # dZ = movement direction: 1 away (zoom out), 0 towards (zoom in), 0.5 stay
-    dZ = 0.5 + 23. * (scale[0]-1) 
+    dZ = 0.5 + 23. * (scale-1) 
     # dZ += 0.5 * float(math.sin(((save_num % 70)/70) * math.pi * 2))
     
     if img_np is None:

@@ -1,12 +1,14 @@
 # Copyright 2020 The Lucent Authors. All Rights Reserved.
 # http://www.apache.org/licenses/LICENSE-2.0
 
+import numpy as np
+import PIL
+import kornia
+import kornia.geometry.transform as K
+
 import torch
 import torch.nn.functional as F
 from torchvision import transforms as T
-import numpy as np
-import kornia
-import kornia.geometry.transform as K
 
 from .utils import old_torch
 
