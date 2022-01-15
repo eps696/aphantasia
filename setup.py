@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='aphantasia',
-    version='2.0.1',    
+    version='2.0.2',
     description='CLIP + FFT/DWT/RGB text-to-image tools',
     url='https://github.com/eps696/aphantasia',
     author='vadim epstein',
