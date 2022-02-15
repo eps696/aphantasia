@@ -126,6 +126,18 @@ def minmax(x, torch=True):
         mx = np.max(x.detach().cpu().numpy())
     return (mn, mx)
 
+def triangle_blur(x, kernel_size=3, pow=1.0):
+    padding = (kernel_size-1) // 2
+    b,c,h,w = x.shape
+    kernel = torch.linspace(-1,1,kernel_size+2)[1:-1].abs().neg().add(1).reshape(1,1,1,kernel_size).pow(pow).cuda()
+    kernel = kernel / kernel.sum()
+    x = x.reshape(b*c,1,h,w)
+    x = F.pad(x, (padding,padding,padding,padding), mode='reflect')
+    x = F.conv2d(x, kernel)
+    x = F.conv2d(x, kernel.permute(0,1,3,2))
+    x = x.reshape(b,c,h,w)
+    return x
+
 # Tiles an array around two points, allowing for pad lengths greater than the input length
 # NB: if symm=True, every second tile is mirrored = messed up in GAN
 # adapted from https://discuss.pytorch.org/t/symmetric-padding/19866/3

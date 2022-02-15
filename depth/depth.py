@@ -1,4 +1,4 @@
-### original code & comments by https://twitter.com/deKxi
+### edited from the code by https://twitter.com/deKxi
 
 import os
 import sys
@@ -12,11 +12,41 @@ import torch.nn.functional as F
 from torchvision import transforms as T
 from torchvision.transforms import functional as TF
 
-from .adabins.infer import InferenceHelper
+from kornia.enhance import equalize
 
-def numpy2tensor(imgArray):
-    im = torch.unsqueeze(T.ToTensor()(imgArray), 0)
-    return im
+from aphantasia.utils import triangle_blur
+from .adabins import model_io
+from .adabins.models import UnetAdaptiveBins
+
+class InferenceHelper:
+    def __init__(self, model_path='models/AdaBins_nyu.pt', device='cuda:0', multirun=False):
+        self.device = device
+        self.min_depth = 1e-3
+        self.max_depth = 10 # *50 ?
+        self.saving_factor = 1000  # used to save in 16 bit
+        self.multirun = multirun
+        model = UnetAdaptiveBins.build(n_bins=256, min_val=self.min_depth, max_val=self.max_depth)
+        model, _, _ = model_io.load_checkpoint(model_path, model)
+        model.eval()
+        self.model = model.to(self.device)
+
+    @torch.no_grad()
+    def predict(self, image):
+        _, pred = self.model(image)
+        pred = torch.clip(pred, self.min_depth, self.max_depth)
+        if self.multirun is True:
+            # Take average of original and mirrors
+            pred_hw = self.model(torch.flip(image, [-2]))[-1] # Flip vertically
+            pred_hw = torch.clip(torch.flip(pred_hw, [-2]), self.min_depth, self.max_depth)
+            pred_lr = self.model(torch.flip(image, [-1]))[-1] # Flip horizontally
+            pred_lr = torch.clip(torch.flip(pred_lr, [-1]), self.min_depth, self.max_depth)
+            pred = (pred + pred_hw + pred_lr) / 3.
+        final = F.interpolate(pred, image.shape[-2:], mode='bilinear', align_corners=True)
+        final[final < self.min_depth] = self.min_depth
+        final[final > self.max_depth] = self.max_depth
+        final[torch.isinf(final)] = self.max_depth
+        final[torch.isnan(final)] = self.min_depth
+        return final
 
 def save_img(img, fname=None):
     img = np.array(img)[:,:,:]
@@ -25,101 +55,82 @@ def save_img(img, fname=None):
     if fname is not None:
         imsave(fname, np.array(img))
 
-def init_adabins(size, model_path, mask_path='mask.jpg', mask_blur=33):
-    depth_infer = InferenceHelper(model_path)
+def init_adabins(size, model_path='models/AdaBins_nyu.pt', mask_path='lib/adabins/mask.jpg', n_bins=256, min_val=1e-3, max_val=10, mask_blur=33, tridepth=False):
+    infer_helper = InferenceHelper(model_path, multirun=tridepth)
     # mask for blending multi-crop depth 
     masksize = (830, 500) # it doesn't have to be this exact number, this is just the max for what works at 16:9 for each crop
     mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
     mask = cv2.resize(mask, masksize)
     mask = cv2.GaussianBlur(mask, (mask_blur,mask_blur),0)
     mask = cv2.resize(mask, (size[1]//2, size[0]//2)) / 255.
-    return depth_infer, mask
+    mask = torch.from_numpy(mask).unsqueeze(0).unsqueeze(0).cuda()
+    return infer_helper, mask
 
-def depthwarp(img, image, infer_helper, mask, size, strength, centre=[0,0], midpoint=0.5, rescale=0, clip_range=0, save_path=None, save_num=0, multicrop=True):
+def resize(img, size):
+    return F.interpolate(img, size, mode='bilinear', align_corners=True).float().cuda()
+    
+def add_equal(img, x):
+    img_norm = img / torch.max(img)
+    img_eq = equalize(img_norm)
+    return torch.lerp(img_norm, img_eq, x)
+
+def denorm(x):
+    std_ = torch.as_tensor((0.229, 0.224, 0.225)).unsqueeze(1).unsqueeze(1).unsqueeze(0).cuda()
+    mean_ = torch.as_tensor((0.485, 0.456, 0.406)).unsqueeze(1).unsqueeze(1).unsqueeze(0).cuda()
+    return torch.clip(x * std_ + mean_, 0., 1.)
+
+def depthwarp(img, infer_helper, mask, size, strength, centre=[0,0], midpoint=0.5, equalhist=0.5, save_path=None, save_num=0, multicrop=True):
     ch, cw = size
     _, _, H, W = img.shape
-    # centre/origin point for the depth extrusion
-    centre = torch.as_tensor(centre).cpu()
+    centre = torch.as_tensor(centre).cuda() # centre/origin point for depth extrusion
 
     # Resize down for inference
     if H < W: # 500p on either dimension was the limit I found for AdaBins
         r = 500 / float(H)
-        dim = (int(W * r), 500)
+        dim = (500, int(W*r))
     else:
         r = 500 / float(W)
-        dim = (500, int(H * r))
-    image = image.resize(dim,3)
-
-    bin_centres, predicted_depth = infer_helper.predict_pil(image)     
+        dim = (int(H*r), 500)
+    # image = denorm(resize(triangle_blur(img, 5, 2), dim)) # blur 
+    image = denorm(resize(torch.lerp(img, triangle_blur(img, 5, 2), 0.5), dim)) # blur lerp
     
-    # Resize back to original before (optionally) adding the cropped versions
-    predicted_depth = cv2.resize(predicted_depth[0][0],(W,H))
+    pred_depth = infer_helper.predict(image)
+    pred_depth = resize(pred_depth, (H,W)) # Resize back to original before optional crops
 
     if multicrop: 
-        # This code is very jank as I threw it together as a quick proof-of-concept, and it miraculously worked 
-        # There's very likely to be some improvements that can be made
-
-        clone = predicted_depth.copy()
         # Splitting the image into separate crops, probably inefficiently
-        TL = T.functional.crop(image.resize((H,W),3), top=0, left=0, height=cw, width=ch).resize(dim,3)
-        TR = T.functional.crop(image.resize((H,W),3), top=0, left=ch, height=cw, width=ch).resize(dim,3)
-        BL = T.functional.crop(image.resize((H,W),3), top=cw, left=0, height=cw, width=ch).resize(dim,3)
-        BR = T.functional.crop(image.resize((H,W),3), top=cw, left=ch, height=cw, width=ch).resize(dim,3)
-
+        TL = resize(TF.crop(resize(image, (H,W)), top=0,  left=0,  height=ch, width=cw), dim)
+        TR = resize(TF.crop(resize(image, (H,W)), top=0,  left=cw, height=ch, width=cw), dim)
+        BL = resize(TF.crop(resize(image, (H,W)), top=ch, left=0,  height=ch, width=cw), dim)
+        BR = resize(TF.crop(resize(image, (H,W)), top=ch, left=cw, height=ch, width=cw), dim)
         # Inference on crops
-        _, predicted_TL = infer_helper.predict_pil(TL)
-        _, predicted_TR = infer_helper.predict_pil(TR)
-        _, predicted_BL = infer_helper.predict_pil(BL)
-        _, predicted_BR = infer_helper.predict_pil(BR)
+        pred_TL = infer_helper.predict(TL)
+        pred_TR = infer_helper.predict(TR)
+        pred_BL = infer_helper.predict(BL)
+        pred_BR = infer_helper.predict(BR)
 
-        # Rescale will increase per object depth difference, but may cause more depth fluctuations if set too high
-        # This likely results in the depth map being less "accurate" to any real world units.. not that it was particularly in the first place lol
-        if rescale != 0:
-            # Histogram equalize requires a range of 0-255, but I'm recombining later in 0-1 hence this mess
-            TL = cv2.addWeighted(cv2.equalizeHist(predicted_TL.astype(np.uint8) * 255) / 255., 1-rescale, predicted_TL.astype(np.uint8),rescale,0)
-            TR = cv2.addWeighted(cv2.equalizeHist(predicted_TR.astype(np.uint8) * 255) / 255., 1-rescale, predicted_TR.astype(np.uint8),rescale,0)
-            BL = cv2.addWeighted(cv2.equalizeHist(predicted_BL.astype(np.uint8) * 255) / 255., 1-rescale, predicted_BL.astype(np.uint8),rescale,0)
-            BR = cv2.addWeighted(cv2.equalizeHist(predicted_BR.astype(np.uint8) * 255) / 255., 1-rescale, predicted_BR.astype(np.uint8),rescale,0)
         # Combining / blending the crops with the original [so so solution]
-        TL = clone[0: ch, 0: cw] * (1 - mask) + cv2.resize(predicted_TL[0][0],(cw,ch)) * mask
-        TR = clone[0: ch, cw: cw+cw] * (1 - mask) + cv2.resize(predicted_TR[0][0],(cw,ch)) * mask
-        BL = clone[ch: ch+ch, 0: cw] * (1 - mask) + cv2.resize(predicted_BL[0][0],(cw,ch)) * mask
-        BR = clone[ch: ch+ch, cw: cw+cw] * (1 - mask) + cv2.resize(predicted_BR[0][0],(cw,ch)) * mask
-
-        clone[0: ch, 0: cw] = TL
-        clone[0: ch, cw: cw+cw] = TR
-        clone[ch: ch+ch, 0: cw] = BL
-        clone[ch: ch+ch, cw: cw+cw] = BR
+        clone = pred_depth.clone().detach()
+        TL = clone[:, :, 0:ch, 0:cw]         * (1-mask) + resize(pred_TL,(ch,cw)) * mask
+        TR = clone[:, :, 0:ch, cw:cw+cw]     * (1-mask) + resize(pred_TR,(ch,cw)) * mask
+        BL = clone[:, :, ch:ch+ch, 0:cw]     * (1-mask) + resize(pred_BL,(ch,cw)) * mask
+        BR = clone[:, :, ch:ch+ch, cw:cw+cw] * (1-mask) + resize(pred_BR,(ch,cw)) * mask
+        clone[:, :, 0:ch, 0:cw] = TL
+        clone[:, :, 0:ch, cw:cw+cw] = TR
+        clone[:, :, ch:ch+ch, 0:cw] = BL
+        clone[:, :, ch:ch+ch, cw:cw+cw] = BR
         
-        # I'm just multiplying the depths currently, but performing a pixel average is possibly a better idea
-        predicted_depth = predicted_depth * clone
-        predicted_depth /= np.max(predicted_depth) # Renormalize so we don't blow the image out of range
+        pred_depth = (pred_depth + clone) / 2.
 
-    #### Generating a new depth map on each frame can sometimes cause temporal depth fluctuations and "popping". 
-    #### This part is just some of my experiments trying to mitigate that
-    # Dividing by average
-    #ave = np.mean(predicted_depth)
-    #predicted_depth = np.true_divide(predicted_depth, ave)
-    # Clipping the very end values that often throw the histogram equalize balance off which can mitigate rescales negative effects
-    gmin = np.percentile(predicted_depth, 0 + clip_range) # 5
-    gmax = np.percentile(predicted_depth, 100 - clip_range) # 8
-    clipped = np.clip(predicted_depth, gmin, gmax)
+    if equalhist != 0:
+        # Clipping the very end values that often throw the histogram equalize balance off which can mitigate rescales negative effects
+        # gmin = torch.quantile(pred_depth, 0.05)
+        # gmax = torch.quantile(pred_depth, 0.92)
+        # pred_depth = torch.clip(pred_depth, gmin, gmax)
+        pred_depth = add_equal(pred_depth, equalhist)
 
-    # Depth is reversed, hence the "1 - x"
-    predicted_depth = (1 - ((clipped - gmin) / (gmax - gmin))) * 255
-
-    # Rescaling helps emphasise the depth difference but is less "accurate". The amount gets mixed in via lerp
-    if rescale != 0:
-        rescaled = numpy2tensor(cv2.equalizeHist(predicted_depth.astype(np.uint8)))
-        rescaled = T.Resize((H,W))(rescaled.cuda())
-    
-    # Renormalizing again before converting back to tensor
-    predicted_depth = predicted_depth.astype(np.uint8) / np.max(predicted_depth.astype(np.uint8))
-    dtensor = numpy2tensor(PIL.Image.fromarray(predicted_depth)).cuda()
-    #dtensor = T.Resize((H,W))(dtensor.cuda())
-
-    if rescale != 0: # Mixin amount for rescale, from 0-1
-        dtensor = torch.lerp(dtensor, rescaled, rescale)
+    dtensor = 1. - (pred_depth - pred_depth.min()) / (pred_depth.max() - pred_depth.min()) # Depth is reversed, hence 1-x
+    # del image, pred_depth
 
     if save_path is not None: # Save depth map out, currently its as its own image but it could just be added as an alpha channel to main image
         out_depth = dtensor.detach().clone().cpu().squeeze(0)
@@ -127,30 +138,24 @@ def depthwarp(img, image, infer_helper, mask, size, strength, centre=[0,0], midp
 
     dtensor = dtensor.squeeze(0)
 
-    # Building the coordinates, most of this is on CPU since it uses numpy
+    # Building the coordinates
     xx = torch.linspace(-1, 1, W)
     yy = torch.linspace(-1, 1, H)
     gy, gx = torch.meshgrid(yy, xx)
-    grid = torch.stack([gx, gy], dim=-1).cpu()
-    d = (centre-grid).cpu()
-    # Simple lens distortion that can help mitigate the "stretching" that appears in the periphery
-    lens_distortion = torch.sqrt((d**2).sum(axis=-1)).cpu()
-    #grid2 = torch.stack([gx, gy], dim=-1)
+    
+    # Apply depth warp
+    grid = torch.stack([gx, gy], dim=-1).cuda()
+    d = centre - grid
     d_sum = dtensor[0]
-
     # Adjust midpoint / move direction
-    d_sum = (d_sum - (torch.max(d_sum) * midpoint)).cpu()
-    
-    # Apply the depth map (and lens distortion) to the grid coordinates
+    d_sum = d_sum - torch.max(d_sum) * midpoint
     grid += d * d_sum.unsqueeze(-1) * strength
-    del image, bin_centres, predicted_depth
+    img = F.grid_sample(img, grid.unsqueeze(0), align_corners=True, padding_mode='reflection')
 
-    # Perform the depth warp
-    img = torch.nn.functional.grid_sample(img, grid.unsqueeze(0).cuda(), align_corners=True, padding_mode='reflection')
-    
-    # Reset and perform the lens distortion warp (with reduced strength)
-    grid = torch.stack([gx, gy], dim=-1).cpu()
-    grid += d * lens_distortion.unsqueeze(-1) * (strength*0.31)
-    img = torch.nn.functional.grid_sample(img, grid.unsqueeze(0).cuda(), align_corners=True, padding_mode='reflection')
+    # Apply simple lens distortion to mitigate the "stretching" that appears in the periphery
+    grid = torch.stack([gx, gy], dim=-1).cuda()
+    lens_distortion = torch.sqrt((d**2).sum(axis=-1)).cuda()
+    grid += d * lens_distortion.unsqueeze(-1) * strength * 0.31
+    img = F.grid_sample(img, grid.unsqueeze(0), align_corners=True, padding_mode='reflection')
 
     return img

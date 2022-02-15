@@ -73,6 +73,7 @@ def get_args():
     parser.add_argument(       '--anima',   default=True, help='Animate motion')
     # depth
     parser.add_argument('-d',  '--depth',   default=0, type=float, help='Add depth with such strength, if > 0')
+    parser.add_argument(       '--tridepth', action='store_true', help='process depth 3 times [mirrored]')
     parser.add_argument(   '--depth_model', default='AdaBins_nyu.pt', help='AdaBins model path')
     parser.add_argument(   '--depth_mask',  default='depth/mask.jpg', help='depth mask path')
     parser.add_argument(   '--depth_dir',   default=None, help='Directory to save depth, if not None')
@@ -107,40 +108,25 @@ def get_args():
     
     return a
 
-def depth_transform(img_t, img_np, depth_infer, depth_mask, size, depthX=0, scale=1., shift=[0,0], colors=1, depth_dir=None, save_num=0):
+def depth_transform(img_t, depth_infer, depth_mask, size, depthX=0, scale=1., shift=[0,0], colors=1, depth_dir=None, save_num=0):
+    size2 = [s//2 for s in size]
     if not isinstance(scale, float): scale = float(scale[0])
     # d X/Y define the origin point of the depth warp, effectively a "3D pan zoom", [-1..1]
     # plus = look ahead, minus = look aside
     dX = 100. * shift[0] / size[1]
     dY = 100. * shift[1] / size[0]
     # dZ = movement direction: 1 away (zoom out), 0 towards (zoom in), 0.5 stay
-    dZ = 0.5 + 23. * (scale-1) 
-    # dZ += 0.5 * float(math.sin(((save_num % 70)/70) * math.pi * 2))
-    
-    if img_np is None:
-        img2 = img_t.clone().detach()
-        par, imag, _ = pixel_image(img2.shape, resume=img2)
-        img2 = to_valid_rgb(imag, colors=colors)()
-        img2 = img2.detach().cpu().numpy()[0]
-        img2 = (np.transpose(img2, (1,2,0))) # [h,w,c]
-        img2 = np.clip(img2*255, 0, 255).astype(np.uint8)
-        image_pil = T.ToPILImage()(img2)
-        del img2
-    else:
-        image_pil = T.ToPILImage()(img_np)
-
-    size2 = [s//2 for s in size]
-
-    img = depth.depthwarp(img_t, image_pil, depth_infer, depth_mask, size2, depthX, [dX,dY], dZ, rescale=0.5, clip_range=2, save_path=depth_dir, save_num=save_num)
+    dZ = 0.5 + 32. * (scale-1)
+    img = depth.depthwarp(img_t, depth_infer, depth_mask, size2, depthX, [dX,dY], dZ, save_path=depth_dir, save_num=save_num)
     return img
 
 def frame_transform(img, size, angle, shift, scale, shear):
     if old_torch(): # 1.7.1
-        img = T.functional.affine(img, angle, shift, scale, shear, fillcolor=0, resample=PIL.Image.BILINEAR)
+        img = T.functional.affine(img, angle, tuple(shift), scale, shear, fillcolor=0, resample=PIL.Image.BILINEAR)
         img = T.functional.center_crop(img, size)
         img = pad_up_to(img, size)
     else: # 1.8+
-        img = T.functional.affine(img, angle, shift, scale, shear, fill=0, interpolation=T.InterpolationMode.BILINEAR)
+        img = T.functional.affine(img, angle, tuple(shift), scale, shear, fill=0, interpolation=T.InterpolationMode.BILINEAR)
         img = T.functional.center_crop(img, size) # on 1.8+ also pads
     return img
 
@@ -158,8 +144,8 @@ def main():
     if a.model in xmem.keys():
         a.samples = int(a.samples * xmem[a.model])
 
-    if a.depth > 0:
-        depth_infer, depth_mask = depth.init_adabins(size=a.size, model_path=a.depth_model, mask_path=a.depth_mask)
+    if a.depth != 0:
+        depth_infer, depth_mask = depth.init_adabins(size=a.size, model_path=a.depth_model, mask_path=a.depth_mask, tridepth=a.tridepth)
         if a.depth_dir is not None:
             os.makedirs(a.depth_dir, exist_ok=True)
             print(' depth dir:', a.depth_dir)
@@ -235,7 +221,6 @@ def main():
         if a.verbose is True: print(' subtract text:', a.in_txt0)
         if a.translate:
             a.in_txt0 = translator.translate(a.in_txt0, dest='en').text
-            # if a.verbose is True: print(' translated to:', a.in_txt0) 
         anti_txt_encs = [enc_text(txt) for txt in a.in_txt0.split('.')]
 
     if a.verbose is True: print(' samples:', a.samples)
@@ -250,10 +235,8 @@ def main():
         params_tmp, sz = resume_fft(a.resume, shape, decay=1.5, sd=1)
     if sz is not None: a.size = sz
 
-    # [glob]steps = for save/move, opt_steps = for optimization cycle
     steps = a.steps
     glob_steps = count * steps
-    opt_steps = steps * a.opt_step
     if glob_steps == a.fstep: a.fstep = glob_steps // 2 # otherwise no motion
 
     workname = basename(a.in_txt) if a.in_txt is not None else basename(a.in_img)
@@ -294,22 +277,20 @@ def main():
         if cnt == 0: return []
         enc_1 = encs[min(num,   cnt-1)]
         enc_2 = encs[min(num+1, cnt-1)]
-        return slerp(enc_1, enc_2, opt_steps)
+        return slerp(enc_1, enc_2, steps)
 
     prev_enc = 0
-    global img_np
-    img_np = None
     def process(num):
-        global params_tmp, img_np, opt_state, params, image_f, optimizer
+        global params_tmp, opt_state, params, image_f, optimizer
 
         if a.interpol is True: # linear topics interpolation
             txt_encs  = get_encs(key_txt_encs,  num)
             styl_encs = get_encs(key_styl_encs, num)
             img_encs  = get_encs(key_img_encs,  num)
         else: # change by cut
-            txt_encs  = [key_txt_encs[min(num,  len(key_txt_encs)-1)][0]]  * opt_steps if len(key_txt_encs)  > 0 else []
-            styl_encs = [key_styl_encs[min(num, len(key_styl_encs)-1)][0]] * opt_steps if len(key_styl_encs) > 0 else []
-            img_encs  = [key_img_encs[min(num,  len(key_img_encs)-1)][0]]  * opt_steps if len(key_img_encs)  > 0 else []
+            txt_encs  = [key_txt_encs[min(num,  len(key_txt_encs)-1)][0]]  * steps if len(key_txt_encs)  > 0 else []
+            styl_encs = [key_styl_encs[min(num, len(key_styl_encs)-1)][0]] * steps if len(key_styl_encs) > 0 else []
+            img_encs  = [key_img_encs[min(num,  len(key_img_encs)-1)][0]]  * steps if len(key_img_encs)  > 0 else []
         
         if a.verbose is True: 
             if len(texts)  > 0: print(' ref text: ',  texts[min(num, len(texts)-1)][:80])
@@ -319,18 +300,21 @@ def main():
         pbar = ProgressBar(steps)
         for ii in range(steps):
             glob_step = num * steps + ii # save/transform
-            img_np = None
             
+            txt_enc  = txt_encs[ii % len(txt_encs)].unsqueeze(0)   if len(txt_encs)  > 0 else None
+            styl_enc = styl_encs[ii % len(styl_encs)].unsqueeze(0) if len(styl_encs) > 0 else None
+            img_enc  = img_encs[ii % len(img_encs)].unsqueeze(0)   if len(img_encs)  > 0 else None
+
             # MOTION: transform frame, reload params
 
-            scale =       m_scale[glob_step]    if a.anima else 1 + a.scale
-            shift = tuple(m_shift[glob_step])   if a.anima else [0, a.shift]
-            angle =       m_angle[glob_step][0] if a.anima else a.angle
-            shear =       m_shear[glob_step][0] if a.anima else a.shear
+            scale = m_scale[glob_step]    if a.anima else 1 + a.scale
+            shift = m_shift[glob_step]    if a.anima else [0, a.shift]
+            angle = m_angle[glob_step][0] if a.anima else a.angle
+            shear = m_shear[glob_step][0] if a.anima else a.shear
 
             if a.gen == 'RGB':
                 if a.depth > 0:
-                    params_tmp = depth_transform(params_tmp, img_np, depth_infer, depth_mask, a.size, a.depth, scale, shift, a.colors, a.depth_dir, glob_step)
+                    params_tmp = depth_transform(params_tmp, depth_infer, depth_mask, a.size, a.depth, scale, shift, a.colors, a.depth_dir, glob_step)
                 params_tmp = frame_transform(params_tmp, a.size, angle, shift, scale, shear)
                 params, image_f, _ = pixel_image([1, 3, *a.size], resume=params_tmp)
                 img_tmp = None
@@ -339,7 +323,7 @@ def main():
                 if old_torch(): # 1.7.1
                     img_tmp = torch.irfft(params_tmp, 2, normalized=True, signal_sizes=a.size)
                     if a.depth > 0:
-                        img_tmp = depth_transform(img_tmp, img_np, depth_infer, depth_mask, a.size, a.depth, scale, shift, a.colors, a.depth_dir, glob_step)
+                        img_tmp = depth_transform(img_tmp, depth_infer, depth_mask, a.size, a.depth, scale, shift, a.colors, a.depth_dir, glob_step)
                     img_tmp = frame_transform(img_tmp, a.size, angle, shift, scale, shear)
                     params_tmp = torch.rfft(img_tmp, 2, normalized=True)
                 else: # 1.8+
@@ -347,7 +331,7 @@ def main():
                         params_tmp = torch.view_as_complex(params_tmp)
                     img_tmp = torch.fft.irfftn(params_tmp, s=a.size, norm='ortho')
                     if a.depth > 0:
-                        img_tmp = depth_transform(img_tmp, img_np, depth_infer, depth_mask, a.size, a.depth, scale, shift, a.colors, a.depth_dir, glob_step)
+                        img_tmp = depth_transform(img_tmp, depth_infer, depth_mask, a.size, a.depth, scale, shift, a.colors, a.depth_dir, glob_step)
                     img_tmp = frame_transform(img_tmp, a.size, angle, shift, scale, shear)
                     params_tmp = torch.fft.rfftn(img_tmp, s=a.size, dim=[2,3], norm='ortho')
                     params_tmp = torch.view_as_real(params_tmp)
@@ -358,14 +342,10 @@ def main():
             else:
                 optimizer = torch.optim.Adam(params, a.lrate, betas=(.0,.999))
             image_f = to_valid_rgb(image_f, colors = a.colors)
-            del img_tmp, img_np
+            del img_tmp
             
             if a.smooth is True and num + ii > 0:
                 optimizer.load_state_dict(opt_state)
-
-            txt_enc  = txt_encs[ii % len(txt_encs)].unsqueeze(0)   if len(txt_encs)  > 0 else None
-            styl_enc = styl_encs[ii % len(styl_encs)].unsqueeze(0) if len(styl_encs) > 0 else None
-            img_enc  = img_encs[ii % len(img_encs)].unsqueeze(0)   if len(img_encs)  > 0 else None
 
             ### optimization
             for ss in range(a.opt_step):
@@ -378,8 +358,8 @@ def main():
                 out_enc = model_clip.encode_image(img_sliced)
 
                 if a.gen == 'RGB': # empirical hack
-                    loss += abs(img_out.mean((2,3)) - 0.45).sum() # fix brightness
-                    loss += abs(img_out.std((2,3)) - 0.17).sum() # fix contrast
+                    loss += abs(img_out.mean((2,3)) - 0.45).mean() # fix brightness
+                    loss += abs(img_out.std((2,3)) - 0.17).mean() # fix contrast
 
                 if txt_enc is not None:
                     loss -= a.invert * sim_func(txt_enc, out_enc, a.sim)
@@ -419,7 +399,7 @@ def main():
                 img_np = torch.clip(img_t*255, 0, 255).cpu().numpy().astype(np.uint8)
             imsave(os.path.join(tempdir, '%06d.jpg' % glob_step), img_np, quality=95)
             if a.verbose is True: cvshow(img_np)
-            del img_t
+            del img_t, img_np
             pbar.upd()
 
         params_tmp = params[0].detach().clone()
