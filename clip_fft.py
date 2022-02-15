@@ -42,7 +42,7 @@ def get_args():
     parser.add_argument(       '--out_dir', default='_out')
     parser.add_argument('-s',  '--size',    default='1280-720', help='Output resolution')
     parser.add_argument('-r',  '--resume',  default=None, help='Path to saved FFT snapshots, to resume from')
-    parser.add_argument('-opt', '--opt_step', default=1, type=int, help='How many optimizing steps per save step')
+    parser.add_argument('-ops', '--opt_step', default=1, type=int, help='How many optimizing steps per save step')
     parser.add_argument('-tr', '--translate', action='store_true', help='Translate text with Google Translate')
     parser.add_argument('-ml', '--multilang', action='store_true', help='Use SBERT multilanguage model for text')
     parser.add_argument(       '--save_pt', action='store_true', help='Save FFT snapshots for further use')
@@ -61,10 +61,11 @@ def get_args():
     # tweaks
     parser.add_argument('-a',  '--align',   default='uniform', choices=['central', 'uniform', 'overscan', 'overmax'], help='Sampling distribution')
     parser.add_argument('-tf', '--transform', default='fast', choices=['none', 'fast', 'custom', 'elastic'], help='augmenting transforms')
-    parser.add_argument(       '--contrast', default=0.9, type=float)
-    parser.add_argument(       '--colors',  default=1.5, type=float)
+    parser.add_argument('-opt', '--optimizer', default='adam', choices=['adam', 'adamw'], help='Optimizer')
+    parser.add_argument(       '--contrast', default=1.1, type=float)
+    parser.add_argument(       '--colors',  default=1.8, type=float)
     parser.add_argument(       '--decay',   default=1.5, type=float)
-    parser.add_argument('-sh', '--sharp',   default=0.3, type=float)
+    parser.add_argument('-sh', '--sharp',   default=0., type=float)
     parser.add_argument('-mm', '--macro',   default=0.4, type=float, help='Endorse macro forms 0..1 ')
     parser.add_argument('-e',  '--enforce', default=0, type=float, help='Enforce details (by boosting similarity between two parallel samples)')
     parser.add_argument('-x',  '--expand',  default=0, type=float, help='Boosts diversity (by enforcing difference between prev/next samples)')
@@ -100,7 +101,10 @@ def main():
         lr0 = lr1 * 0.01
     else:
         lr0 = a.lrate
-    optimizer = torch.optim.AdamW(params, lr0, weight_decay=0.01, amsgrad=True)
+    if a.optimizer.lower() == 'adamw':
+        optimizer = torch.optim.AdamW(params, lr0, weight_decay=0.01, betas=(.0, .999), amsgrad=True)
+    else:
+        optimizer = torch.optim.Adam(params, lr0, betas=(.0, .999))
     sign = 1. if a.invert is True else -1.
 
     # Load CLIP models

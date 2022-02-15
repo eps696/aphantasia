@@ -62,15 +62,16 @@ python clip_fft.py -t "topic sentence" -t2 "style description" -t0 "avoid this" 
 `--samples N` sets amount of the image cuts (samples), processed at one step. With more samples you can set fewer iterations for similar result (and vice versa). 200/200 is a good guess. NB: GPU memory is mostly eaten by this count (not resolution)!  
 `--decay X` (compositional softness), `--colors X` (saturation) and `--contrast X` may be useful, especially for ResNet models (they tend to burn the colors). 
 `--sharp X` may be useful to increase sharpness, if the image becomes "myopic" after increasing `decay`. it affects the other color parameters, better tweak them all together! 
-Current defaults are `--decay 1.5 --colors 1.5 --contrast 0.9 --sharp 0.3`.  
+Current defaults are `--decay 1.5 --colors 1.8 --contrast 1.1 --sharp 0`.  
 `--transform X` applies some augmentations, usually enhancing result (but slower). there are few choices; `fast` seems optimal.  
+`--optimizer O` can be `adam` or `adamw`. The latter is stable but noisy; `adam` is softer, but may tend to colored blurring. 
 `--invert` negates the whole criteria, if you fancy checking "totally opposite".  
 `--save_pt myfile.pt` will save FFT/DWT parameters, to resume for next query with `--resume myfile.pt`. One can also start/resume directly from an image file.  
 `--opt_step N` tells to save every Nth frame (useful with high iterations, default is 1).  
 `--verbose` ('on' by default) enables some printouts and realtime image preview.  
 * Some experimental tricks with less definite effects:  
-`--enforce X` adds more details by boosting similarity between two parallel samples. good start is ~0.2.  
-`--expand X` boosts diversity by enforcing difference between prev/next samples. good start is ~0.4.  
+`--enforce X` adds more details by boosting similarity between two parallel samples. good start is ~0.1.  
+`--expand X` boosts diversity by enforcing difference between prev/next samples. good start is ~0.3.  
 `--notext X` tries to remove "graffiti" by subtracting plotted text prompt. good start is ~0.1.  
 `--noise X` adds some noise to the parameters, possibly making composition less clogged (in a degree).  
 `--macro X` (from 0 to 1) shifts generation to bigger forms and less disperse composition. should not be too close to 1, since the quality depends on the variety of samples.  

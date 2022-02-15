@@ -81,8 +81,8 @@ def get_args():
     parser.add_argument('-tf', '--transform', default='fast', choices=['none', 'fast', 'custom', 'elastic'], help='augmenting transforms')
     parser.add_argument('-opt', '--optimizer', default='adam', choices=['adam', 'adamw'], help='Optimizer')
     parser.add_argument(       '--contrast', default=1.2, type=float)
-    parser.add_argument(       '--colors',  default=2, type=float)
-    parser.add_argument('-sh', '--sharp',   default=None, type=float)
+    parser.add_argument(       '--colors',  default=2.3, type=float)
+    parser.add_argument('-sh', '--sharp',   default=0, type=float)
     parser.add_argument('-mc', '--macro',   default=0.4, type=float, help='Endorse macro forms 0..1 ')
     parser.add_argument('-e',  '--enforce', default=0, type=float, help='Enforce details (by boosting similarity between two parallel samples)')
     parser.add_argument('-x',  '--expand',  default=0, type=float, help='Boosts diversity (by enforcing difference between prev/next samples)')
@@ -100,7 +100,6 @@ def get_args():
     if a.gen == 'RGB':
         a.smooth = False
         a.align = 'overscan'
-    if a.sharp is None: a.sharp = -1. if a.gen == 'RGB' else 1.
     if a.model == 'ViT-B/16': a.sim = 'cossim'
 
     if a.translate is True and googletrans_ok is not True: 
@@ -355,9 +354,9 @@ def main():
                 params, image_f, _ = fft_image([1, 3, *a.size], sd=1, resume=params_tmp)
 
             if a.optimizer.lower() == 'adamw':
-                optimizer = torch.optim.AdamW(params, a.lrate, weight_decay=0.01)
+                optimizer = torch.optim.AdamW(params, a.lrate, weight_decay=0.01, betas=(.0,.999))
             else:
-                optimizer = torch.optim.Adam(params, a.lrate)
+                optimizer = torch.optim.Adam(params, a.lrate, betas=(.0,.999))
             image_f = to_valid_rgb(image_f, colors = a.colors)
             del img_tmp, img_np
             
