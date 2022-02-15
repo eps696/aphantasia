@@ -102,9 +102,13 @@ def main():
     else:
         lr0 = a.lrate
     if a.optimizer.lower() == 'adamw':
-        optimizer = torch.optim.AdamW(params, lr0, weight_decay=0.01, betas=(.0, .999), amsgrad=True)
-    else:
-        optimizer = torch.optim.Adam(params, lr0, betas=(.0, .999))
+        optimizer = torch.optim.AdamW(params, lr0, weight_decay=0.01)
+    elif a.optimizer.lower() == 'adamw_custom':
+        optimizer = torch.optim.AdamW(params, lr0, weight_decay=0.01, betas=(.0,.999), amsgrad=True)
+    elif a.optimizer.lower() == 'adam':
+        optimizer = torch.optim.Adam(params, lr0)
+    else: # adam_custom
+        optimizer = torch.optim.Adam(params, lr0, betas=(.0,.999))
     sign = 1. if a.invert is True else -1.
 
     # Load CLIP models

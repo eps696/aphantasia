@@ -80,11 +80,11 @@ def get_args():
     # tweaks
     parser.add_argument('-a',  '--align',   default='overscan', choices=['central', 'uniform', 'overscan', 'overmax'], help='Sampling distribution')
     parser.add_argument('-tf', '--transform', default='fast', choices=['none', 'fast', 'custom', 'elastic'], help='augmenting transforms')
-    parser.add_argument('-opt', '--optimizer', default='adam', choices=['adam', 'adamw'], help='Optimizer')
+    parser.add_argument('-opt', '--optimizer', default='adam', choices=['adam', 'adam_custom', 'adamw', 'adamw_custom'], help='Optimizer')
     parser.add_argument(       '--contrast', default=1.2, type=float)
     parser.add_argument(       '--colors',  default=2.3, type=float)
     parser.add_argument('-sh', '--sharp',   default=0, type=float)
-    parser.add_argument('-mc', '--macro',   default=0.4, type=float, help='Endorse macro forms 0..1 ')
+    parser.add_argument('-mc', '--macro',   default=0.3, type=float, help='Endorse macro forms 0..1 ')
     parser.add_argument('-e',  '--enforce', default=0, type=float, help='Enforce details (by boosting similarity between two parallel samples)')
     parser.add_argument('-x',  '--expand',  default=0, type=float, help='Boosts diversity (by enforcing difference between prev/next samples)')
     parser.add_argument('-n',  '--noise',   default=2., type=float, help='Add noise to make composition sparse (FFT only)') # 0.04
@@ -338,12 +338,16 @@ def main():
                 params, image_f, _ = fft_image([1, 3, *a.size], sd=1, resume=params_tmp)
 
             if a.optimizer.lower() == 'adamw':
-                optimizer = torch.optim.AdamW(params, a.lrate, weight_decay=0.01, betas=(.0,.999))
-            else:
+                optimizer = torch.optim.AdamW(params, a.lrate, weight_decay=0.01)
+            elif a.optimizer.lower() == 'adamw_custom':
+                optimizer = torch.optim.AdamW(params, a.lrate, weight_decay=0.01, betas=(.0,.999), amsgrad=True)
+            elif a.optimizer.lower() == 'adam':
+                optimizer = torch.optim.Adam(params, a.lrate)
+            else: # adam_custom
                 optimizer = torch.optim.Adam(params, a.lrate, betas=(.0,.999))
             image_f = to_valid_rgb(image_f, colors = a.colors)
             del img_tmp
-            
+
             if a.smooth is True and num + ii > 0:
                 optimizer.load_state_dict(opt_state)
 

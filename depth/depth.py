@@ -92,7 +92,7 @@ def depthwarp(img, infer_helper, mask, size, strength, centre=[0,0], midpoint=0.
         r = 500 / float(W)
         dim = (int(H*r), 500)
     # image = denorm(resize(triangle_blur(img, 5, 2), dim)) # blur 
-    image = denorm(resize(torch.lerp(img, triangle_blur(img, 5, 2), 0.5), dim)) # blur lerp
+    image = denorm(resize(torch.lerp(img, triangle_blur(img, 5, 2), 0.3), dim)) # blur lerp
     
     pred_depth = infer_helper.predict(image)
     pred_depth = resize(pred_depth, (H,W)) # Resize back to original before optional crops
