@@ -41,7 +41,7 @@ class InferenceHelper:
             pred_lr = self.model(torch.flip(image, [-1]))[-1] # Flip horizontally
             pred_lr = torch.clip(torch.flip(pred_lr, [-1]), self.min_depth, self.max_depth)
             pred = (pred + pred_hw + pred_lr) / 3.
-        final = F.interpolate(pred, image.shape[-2:], mode='bilinear', align_corners=True)
+        final = F.interpolate(pred, image.shape[-2:], mode='bicubic', align_corners=True)
         final[final < self.min_depth] = self.min_depth
         final[final > self.max_depth] = self.max_depth
         final[torch.isinf(final)] = self.max_depth
@@ -55,7 +55,7 @@ def save_img(img, fname=None):
     if fname is not None:
         imsave(fname, np.array(img))
 
-def init_adabins(size, model_path='models/AdaBins_nyu.pt', mask_path='lib/adabins/mask.jpg', n_bins=256, min_val=1e-3, max_val=10, mask_blur=33, tridepth=False):
+def init_adabins(size, model_path='models/AdaBins_nyu.pt', mask_path='lib/adabins/mask.jpg', mask_blur=33, tridepth=False):
     infer_helper = InferenceHelper(model_path, multirun=tridepth)
     # mask for blending multi-crop depth 
     masksize = (830, 500) # it doesn't have to be this exact number, this is just the max for what works at 16:9 for each crop
@@ -67,7 +67,7 @@ def init_adabins(size, model_path='models/AdaBins_nyu.pt', mask_path='lib/adabin
     return infer_helper, mask
 
 def resize(img, size):
-    return F.interpolate(img, size, mode='bilinear', align_corners=True).float().cuda()
+    return F.interpolate(img, size, mode='bicubic', align_corners=True).float().cuda()
     
 def add_equal(img, x):
     img_norm = img / torch.max(img)

@@ -64,7 +64,7 @@ python clip_fft.py -t "topic sentence" -t2 "style description" -t0 "avoid this" 
 `--sharp X` may be useful to increase sharpness, if the image becomes "myopic" after increasing `decay`. it affects the other color parameters, better tweak them all together! 
 Current defaults are `--decay 1.5 --colors 1.8 --contrast 1.1 --sharp 0`.  
 `--transform X` applies some augmentations, usually enhancing result (but slower). there are few choices; `fast` seems optimal.  
-`--optimizer O` can be `adam` or `adamw`. The latter is stable but noisy; `adam` is softer, but may tend to colored blurring. 
+`--optimizer` can be `adam`, `adamw`, `adam_custom` or `adamw_custom`. Custom options are noiser but stable; pure `adam` is softer, but may tend to colored blurring.  
 `--invert` negates the whole criteria, if you fancy checking "totally opposite".  
 `--save_pt myfile.pt` will save FFT/DWT parameters, to resume for next query with `--resume myfile.pt`. One can also start/resume directly from an image file.  
 `--opt_step N` tells to save every Nth frame (useful with high iterations, default is 1).  
