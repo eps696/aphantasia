@@ -9,20 +9,17 @@ from pytorch_wavelets import DWTForward, DWTInverse
 import torch
 
 from aphantasia.utils import slice_imgs, derivat, sim_func, basename, img_list, img_read, plot_text, old_torch
+from aphantasia.transforms import normalize
 
 def to_valid_rgb(image_f, colors=1., decorrelate=True):
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    color_correlation_svd_sqrt = np.asarray([[0.26, 0.09, 0.02], [0.27, 0.00, -0.05], [0.27, -0.09, 0.03]]).astype("float32")
-    color_correlation_svd_sqrt /= np.asarray([colors, 1., 1.]) # saturate, empirical
-    max_norm_svd_sqrt = np.max(np.linalg.norm(color_correlation_svd_sqrt, axis=0))
+    color_correlation_svd_sqrt = torch.tensor([[0.26, 0.09, 0.02], [0.27, 0.00, -0.05], [0.27, -0.09, 0.03]])
+    color_correlation_svd_sqrt /= torch.tensor([colors, 1., 1.]) # saturate, empirical
+    max_norm_svd_sqrt = color_correlation_svd_sqrt.norm(dim=0).max()
     color_correlation_normalized = color_correlation_svd_sqrt / max_norm_svd_sqrt
-    colcorr_t = torch.tensor(color_correlation_normalized.T).to(device)
+    colcorr_t = color_correlation_normalized.T.cuda()
 
-    def _linear_decorrelate_color(tensor):
-        t_permute = tensor.permute(0,2,3,1)
-        t_permute = torch.matmul(t_permute, colcorr_t)
-        tensor = t_permute.permute(0,3,1,2)
-        return tensor
+    def _linear_decorrelate_color(image):
+        return torch.einsum('nchw,cd->ndhw', image, colcorr_t) # edit by katherine crowson
 
     def inner(*args, **kwargs):
         image = image_f(*args, **kwargs)
@@ -83,15 +80,13 @@ def dwt_scale(Ys, sharp):
     return scale
 
 def img2dwt(img_in, wave='coif2', sharp=0.3, colors=1.):
-    if not isinstance(img_in, torch.Tensor):
-        img_in = torch.Tensor(img_in).cuda().permute(2,0,1).unsqueeze(0).float() / 255.
-    img_in = un_rgb(img_in, colors=colors)
+    image_t = un_rgb(img_in, colors=colors)
     with torch.no_grad():
-        wp_fake = pywt.WaveletPacket2D(data=np.zeros(img_in.shape[2:]), wavelet='db1', mode='zero')
+        wp_fake = pywt.WaveletPacket2D(data=np.zeros(image_t.shape[2:]), wavelet='db1', mode='zero')
         lvl = wp_fake.maxlevel
-        # print(img_in.shape, lvl)
+        # print(image_t.shape, lvl)
         xfm = DWTForward(J=lvl, wave=wave, mode='symmetric').cuda()
-        Yl_in, Yh_in = xfm(img_in.cuda())
+        Yl_in, Yh_in = xfm(image_t.cuda())
         Ys = [Yl_in, *Yh_in]
     scale = dwt_scale(Ys, sharp)
     for i in range(len(Ys)-1):
@@ -103,24 +98,25 @@ def img2dwt(img_in, wave='coif2', sharp=0.3, colors=1.):
 def pixel_image(shape, resume=None, sd=1., *noargs, **nokwargs):
     size = None
     if resume is None:
-        tensor = torch.randn(*shape) * sd
+        image_t = torch.randn(*shape) * sd
     elif isinstance(resume, str):
         if os.path.isfile(resume):
-            img_in = img_read(resume) / 255.
-            tensor = torch.Tensor(img_in).permute(2,0,1).unsqueeze(0).float().cuda()
-            tensor = un_rgb(tensor-0.5, colors=2.) # experimental
+            img_in = img_read(resume)
+            image_t = 3.3 * un_rgb(img_in, colors=2.)
             size = img_in.shape[:2]
             print(resume, size)
         else: print(' Image not found:', resume); exit()
     else:
         if isinstance(resume, list): resume = resume[0]
-        tensor = resume
-    tensor = tensor.cuda().requires_grad_(True)
+        image_t = resume
+    image_t = image_t.cuda().requires_grad_(True)
 
-    def inner(shift=None, contrast=1.): # *noargs, **nokwargs
-        image = tensor * contrast / tensor.std()
-        return image
-    return [tensor], inner, size # lambda: tensor
+    def inner(shift=None, contrast=1., fixcontrast=False): # *noargs, **nokwargs
+        if fixcontrast is True: # for resuming from image
+            return image_t * contrast / 3.3
+        else:
+            return image_t * contrast / image_t.std()
+    return [image_t], inner, size # lambda: image_t
 
 # From https://github.com/tensorflow/lucid/blob/master/lucid/optvis/param/spatial.py
 def rfft2d_freqs(h, w):
@@ -187,17 +183,18 @@ def inv_sigmoid(x):
     return y.float()
 
 def un_rgb(image, colors=1.):
-    color_correlation_svd_sqrt = np.asarray([[0.26, 0.09, 0.02], [0.27, 0.00, -0.05], [0.27, -0.09, 0.03]]).astype("float32")
-    color_correlation_svd_sqrt /= np.asarray([colors, 1., 1.])
-    max_norm_svd_sqrt = np.max(np.linalg.norm(color_correlation_svd_sqrt, axis=0))
+    color_correlation_svd_sqrt = torch.tensor([[0.26, 0.09, 0.02], [0.27, 0.00, -0.05], [0.27, -0.09, 0.03]])
+    color_correlation_svd_sqrt /= torch.tensor([colors, 1., 1.])  # saturate, empirical
+    max_norm_svd_sqrt = color_correlation_svd_sqrt.norm(dim=0).max()
     color_correlation_normalized = color_correlation_svd_sqrt / max_norm_svd_sqrt
-    color_uncorrelate = np.linalg.inv(color_correlation_normalized)
+    colcorr_t = color_correlation_normalized.T.cuda()
+    colcorr_t_inv = torch.linalg.inv(colcorr_t)
 
-    image = inv_sigmoid(image)
-    t_permute = image.permute(0,2,3,1)
-    t_permute = torch.matmul(t_permute, torch.tensor(color_uncorrelate.T).cuda())
-    image = t_permute.permute(0,3,1,2)
-    return image
+    if not isinstance(image, torch.Tensor): # numpy int array [0..255]
+        image = torch.Tensor(image).cuda().permute(2,0,1).unsqueeze(0) / 255.
+    # image = inv_sigmoid(image)
+    image = normalize()(image) # experimental
+    return torch.einsum('nchw,cd->ndhw', image, colcorr_t_inv) # edit by katherine crowson
 
 def un_spectrum(spectrum, decay_power):
     h = spectrum.shape[2]
@@ -209,18 +206,14 @@ def un_spectrum(spectrum, decay_power):
     return spectrum / scale
 
 def img2fft(img_in, decay=1., colors=1.):
-    if isinstance(img_in, torch.Tensor):
-        h, w = img_in.shape[2], img_in.shape[3]
-    else:
-        h, w = img_in.shape[0], img_in.shape[1]
-        img_in = torch.Tensor(img_in).cuda().permute(2,0,1).unsqueeze(0) / 255.
-    img_in = un_rgb(img_in, colors=colors)
+    image_t = un_rgb(img_in, colors=colors)
+    h, w = image_t.shape[2], image_t.shape[3]
 
     with torch.no_grad():
         if old_torch():
-            spectrum = torch.rfft(img_in, 2, normalized=True) # 1.7
+            spectrum = torch.rfft(image_t, 2, normalized=True) # 1.7
         else:
-            spectrum = torch.fft.rfftn(img_in, s=(h, w), dim=[2,3], norm='ortho') # 1.8
+            spectrum = torch.fft.rfftn(image_t, s=(h, w), dim=[2,3], norm='ortho') # 1.8
             spectrum = torch.view_as_real(spectrum)
         spectrum = un_spectrum(spectrum, decay_power=decay)
         spectrum *= 500000. # [sic!!!]

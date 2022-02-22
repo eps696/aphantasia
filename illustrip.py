@@ -81,6 +81,7 @@ def get_args():
     parser.add_argument('-a',  '--align',   default='overscan', choices=['central', 'uniform', 'overscan', 'overmax'], help='Sampling distribution')
     parser.add_argument('-tf', '--transform', default='fast', choices=['none', 'fast', 'custom', 'elastic'], help='augmenting transforms')
     parser.add_argument('-opt', '--optimizer', default='adam', choices=['adam', 'adam_custom', 'adamw', 'adamw_custom'], help='Optimizer')
+    parser.add_argument(       '--fixcontrast', action='store_true', help='Required for proper resuming from image')
     parser.add_argument(       '--contrast', default=1.2, type=float)
     parser.add_argument(       '--colors',  default=2.3, type=float)
     parser.add_argument('-sh', '--sharp',   default=0, type=float)
@@ -101,6 +102,7 @@ def get_args():
     if a.gen == 'RGB':
         a.smooth = False
         a.align = 'overscan'
+        if a.resume is not None: a.fixcontrast = True
     if a.model == 'ViT-B/16': a.sim = 'cossim'
 
     if a.translate is True and googletrans_ok is not True: 
@@ -143,12 +145,6 @@ def main():
     xmem = {'ViT-B/16':0.25, 'RN50':0.5, 'RN50x4':0.16, 'RN50x16':0.06, 'RN101':0.33}
     if a.model in xmem.keys():
         a.samples = int(a.samples * xmem[a.model])
-
-    if a.depth != 0:
-        depth_infer, depth_mask = depth.init_adabins(size=a.size, model_path=a.depth_model, mask_path=a.depth_mask, tridepth=a.tridepth)
-        if a.depth_dir is not None:
-            os.makedirs(a.depth_dir, exist_ok=True)
-            print(' depth dir:', a.depth_dir)
 
     if a.translate:
         translator = Translator()
@@ -235,20 +231,21 @@ def main():
         params_tmp, sz = resume_fft(a.resume, shape, decay=1.5, sd=1)
     if sz is not None: a.size = sz
 
+    if a.depth != 0:
+        depth_infer, depth_mask = depth.init_adabins(size=a.size, model_path=a.depth_model, mask_path=a.depth_mask, tridepth=a.tridepth)
+        if a.depth_dir is not None:
+            os.makedirs(a.depth_dir, exist_ok=True)
+            print(' depth dir:', a.depth_dir)
+
     steps = a.steps
     glob_steps = count * steps
     if glob_steps == a.fstep: a.fstep = glob_steps // 2 # otherwise no motion
 
     workname = basename(a.in_txt) if a.in_txt is not None else basename(a.in_img)
     workname = txt_clean(workname)
-    workdir = os.path.join(a.out_dir, workname)
+    workdir = os.path.join(a.out_dir, workname + '-%s' % a.gen.lower())
     if a.rem is not None:        workdir += '-%s' % a.rem
     if 'RN' in a.model.upper():  workdir += '-%s' % a.model
-    if a.noise > 0:              workdir += '-n%.2g' % a.noise
-    if a.macro > 0:              workdir += '-m%.2g' % a.macro
-    if a.smooth is True:         workdir += '-sm'
-    if a.transform != 'custom':  workdir += '-tf%s' % a.transform
-    if a.gen == 'RGB':   workdir += '-rgb'
     tempdir = os.path.join(workdir, 'ttt')
     os.makedirs(tempdir, exist_ok=True)
     save_cfg(a, workdir)
@@ -356,7 +353,7 @@ def main():
                 loss = 0
 
                 noise = a.noise * (torch.rand(1, 1, a.size[0], a.size[1]//2+1, 1)-0.5).cuda() if a.noise>0 else 0.
-                img_out = image_f(noise)
+                img_out = image_f(noise, fixcontrast=a.fixcontrast)
                 
                 img_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align, a.macro)[0]
                 out_enc = model_clip.encode_image(img_sliced)
@@ -377,7 +374,7 @@ def main():
                 if a.sharp != 0: # scharr|sobel|naive
                     loss -= a.sharp * derivat(img_out, mode='naive')
                 if a.enforce != 0:
-                    img_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, trform_f, a.align, a.macro)[0]
+                    img_sliced = slice_imgs([image_f(noise, fixcontrast=a.fixcontrast)], a.samples, a.modsize, trform_f, a.align, a.macro)[0]
                     out_enc2 = model_clip.encode_image(img_sliced)
                     loss -= a.enforce * sim_func(out_enc, out_enc2, a.sim)
                     del out_enc2; torch.cuda.empty_cache()
@@ -399,7 +396,7 @@ def main():
                 opt_state = optimizer.state_dict()
 
             with torch.no_grad():
-                img_t = image_f(contrast=a.contrast)[0].permute(1,2,0)
+                img_t = image_f(contrast=a.contrast, fixcontrast=a.fixcontrast)[0].permute(1,2,0)
                 img_np = torch.clip(img_t*255, 0, 255).cpu().numpy().astype(np.uint8)
             imsave(os.path.join(tempdir, '%06d.jpg' % glob_step), img_np, quality=95)
             if a.verbose is True: cvshow(img_np)

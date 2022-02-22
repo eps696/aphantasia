@@ -78,7 +78,7 @@ def get_args():
 
     if a.size is not None: a.size = [int(s) for s in a.size.split('-')][::-1]
     if len(a.size)==1: a.size = a.size * 2
-    if a.in_img is not None and a.sync != 0: a.align = 'overscan'
+    if (a.in_img is not None and a.sync != 0) or a.resume is not None: a.align = 'overscan'
     if a.multilang is True: a.model = 'ViT-B/32' # sbert model is trained with ViT
     if a.translate is True and googletrans_ok is not True: 
         print('\n Install googletrans module to enable translation!'); exit()
@@ -90,9 +90,9 @@ def main():
 
     shape = [1, 3, *a.size]
     if a.dwt is True:
-        params, image_f, sz = dwt_image(shape, a.wave, a.sharp, a.colors, a.resume)
+        params, image_f, sz = dwt_image(shape, a.wave, 0.3, a.colors, a.resume)
     else:
-        params, image_f, sz = fft_image(shape, 0.01, a.decay, a.resume)
+        params, image_f, sz = fft_image(shape, 0.07, a.decay, a.resume)
     if sz is not None: a.size = sz
     image_f = to_valid_rgb(image_f, colors = a.colors)
 
