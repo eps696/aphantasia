@@ -161,7 +161,7 @@ def fft_image(shape, sd=0.01, decay_power=1.0, resume=None): # decay ~ blur
     scale *= np.sqrt(h*w)
     scale = torch.tensor(scale).float()[None, None, ..., None].cuda()
 
-    def inner(shift=None, contrast=1.):
+    def inner(shift=None, contrast=1., *noargs, **nokwargs):
         scaled_spectrum_t = scale * spectrum_real_imag_t
         if shift is not None:
             scaled_spectrum_t += scale * shift
