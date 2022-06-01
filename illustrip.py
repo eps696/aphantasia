@@ -25,7 +25,7 @@ import clip
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 from aphantasia.image import to_valid_rgb, fft_image, resume_fft, pixel_image
-from aphantasia.utils import slice_imgs, derivat, sim_func, slerp, basename, file_list, img_list, img_read, pad_up_to, txt_clean, latent_anima, cvshow, checkout, save_cfg, old_torch
+from aphantasia.utils import slice_imgs, derivat, sim_func, aesthetic_model, intrl, slerp, basename, file_list, img_list, img_read, pad_up_to, txt_clean, latent_anima, cvshow, checkout, save_cfg, old_torch
 from aphantasia import transforms
 from depth import depth
 try: # progress bar for notebooks 
@@ -61,6 +61,7 @@ def get_args():
     parser.add_argument(       '--steps',   default=300, type=int, help='Iterations (frames) per scene (text line)')
     parser.add_argument(       '--samples', default=100, type=int, help='Samples to evaluate per frame')
     parser.add_argument('-lr', '--lrate',   default=1, type=float, help='Learning rate')
+    parser.add_argument('-dm', '--dualmod', default=None, type=int, help='Every this step use another CLIP ViT model')
     # motion
     parser.add_argument('-ops', '--opt_step', default=1, type=int, help='How many optimizing steps per save/transform step')
     parser.add_argument('-sm', '--smooth',  action='store_true', help='Smoothen interframe jittering for FFT method')
@@ -86,6 +87,7 @@ def get_args():
     parser.add_argument(       '--colors',  default=2.3, type=float)
     parser.add_argument('-sh', '--sharp',   default=0, type=float)
     parser.add_argument('-mc', '--macro',   default=0.3, type=float, help='Endorse macro forms 0..1 ')
+    parser.add_argument(       '--aest',    default=0., type=float, help='Enhance aesthetics')
     parser.add_argument('-e',  '--enforce', default=0, type=float, help='Enforce details (by boosting similarity between two parallel samples)')
     parser.add_argument('-x',  '--expand',  default=0, type=float, help='Boosts diversity (by enforcing difference between prev/next samples)')
     parser.add_argument('-n',  '--noise',   default=2., type=float, help='Add noise to make composition sparse (FFT only)') # 0.04
@@ -107,7 +109,11 @@ def get_args():
 
     if a.translate is True and googletrans_ok is not True: 
         print('\n Install googletrans module to enable translation!'); exit()
-    
+
+    if a.dualmod is not None: 
+        a.model = 'ViT-B/32'
+        a.sim = 'cossim'
+
     return a
 
 def depth_transform(img_t, depth_infer, depth_mask, size, depthX=0, scale=1., shift=[0,0], colors=1, depth_dir=None, save_num=0):
@@ -149,6 +155,17 @@ def main():
     if a.translate:
         translator = Translator()
 
+    if a.dualmod is not None: # second is vit-16
+        model_clip2, _ = clip.load('ViT-B/16', jit=old_torch())
+        a.samples = int(a.samples * 0.23)
+        dualmod_nums = list(range(a.steps))[a.dualmod::a.dualmod]
+        print(' dual model every %d step' % a.dualmod)
+
+    if a.aest != 0 and a.model in ['ViT-B/32', 'ViT-B/16', 'ViT-L/14']:
+        aest = aesthetic_model(a.model).cuda()
+        if a.dualmod is not None:
+            aest2 = aesthetic_model('ViT-B/16').cuda()
+    
     if a.enforce != 0:
         a.samples = int(a.samples * 0.5)
 
@@ -164,13 +181,13 @@ def main():
     else:
         trform_f = transforms.normalize()
 
-    def enc_text(txt):
+    def enc_text(txt, model_clip=model_clip):
         if a.translate:
             txt = translator.translate(txt, dest='en').text
         emb = model_clip.encode_text(clip.tokenize(txt).cuda()[:77])
         return emb.detach().clone()
 
-    def enc_image(img_file):
+    def enc_image(img_file, model_clip=model_clip):
         img_t = torch.from_numpy(img_read(img_file)/255.).unsqueeze(0).permute(0,3,1,2).cuda()[:,:3,:,:]
         in_sliced = slice_imgs([img_t], a.samples, a.modsize, transforms.normalize(), a.align)[0]
         emb = model_clip.encode_image(in_sliced)
@@ -194,6 +211,8 @@ def main():
     if a.in_txt_post is not None:
         texts = [' '.join([tt, a.in_txt_post]).strip() for tt in texts]
     key_txt_encs = [enc_text(txt) for txt in texts]
+    if a.dualmod is not None:
+        key_txt_encs2 = [enc_text(txt, model_clip2) for txt in texts]
     count = max(count, len(key_txt_encs))
 
     if a.in_txt2 is not None:
@@ -204,11 +223,15 @@ def main():
         else:
             styles = [a.in_txt2]
     key_styl_encs = [enc_text(style) for style in styles]
+    if a.dualmod is not None:
+        key_styl_encs2 = [enc_text(style, model_clip2) for style in styles]
     count = max(count, len(key_styl_encs))
 
     if a.in_img is not None and os.path.exists(a.in_img):
         images = file_list(a.in_img) if os.path.isdir(a.in_img) else [a.in_img]
     key_img_encs = [enc_image(image) for image in images]
+    if a.dualmod is not None:
+        key_img_encs2 = [proc_image(image, model_clip2) for image in images]
     count = max(count, len(key_img_encs))
     
     assert count > 0, "No inputs found!"
@@ -217,7 +240,9 @@ def main():
         if a.verbose is True: print(' subtract text:', a.in_txt0)
         if a.translate:
             a.in_txt0 = translator.translate(a.in_txt0, dest='en').text
-        anti_txt_encs = [enc_text(txt) for txt in a.in_txt0.split('.')]
+        not_encs = [enc_text(txt) for txt in a.in_txt0.split('.')]
+        if a.dualmod is not None:
+            not_encs2 = [enc_text(style, model_clip2) for txt in a.in_txt0.split('.')]
 
     if a.verbose is True: print(' samples:', a.samples)
 
@@ -245,6 +270,7 @@ def main():
     workname = txt_clean(workname)
     workdir = os.path.join(a.out_dir, workname + '-%s' % a.gen.lower())
     if a.rem is not None:        workdir += '-%s' % a.rem
+    if a.dualmod is not None:    workdir += '-dm%d' % a.dualmod
     if 'RN' in a.model.upper():  workdir += '-%s' % a.model
     tempdir = os.path.join(workdir, 'ttt')
     os.makedirs(tempdir, exist_ok=True)
@@ -284,10 +310,24 @@ def main():
             txt_encs  = get_encs(key_txt_encs,  num)
             styl_encs = get_encs(key_styl_encs, num)
             img_encs  = get_encs(key_img_encs,  num)
+            if a.dualmod is not None:
+                txt_encs2  = get_encs(key_txt_encs2,  num)
+                styl_encs2 = get_encs(key_styl_encs2, num)
+                img_encs2  = get_encs(key_img_encs2,  num)
         else: # change by cut
             txt_encs  = [key_txt_encs[min(num,  len(key_txt_encs)-1)][0]]  * steps if len(key_txt_encs)  > 0 else []
             styl_encs = [key_styl_encs[min(num, len(key_styl_encs)-1)][0]] * steps if len(key_styl_encs) > 0 else []
             img_encs  = [key_img_encs[min(num,  len(key_img_encs)-1)][0]]  * steps if len(key_img_encs)  > 0 else []
+            if a.dualmod is not None:
+                txt_encs2  = [key_txt_encs2[min(num,  len(key_txt_encs2)-1)][0]]  * steps if len(key_txt_encs2)  > 0 else []
+                styl_encs2 = [key_styl_encs2[min(num, len(key_styl_encs2)-1)][0]] * steps if len(key_styl_encs2) > 0 else []
+                img_encs2  = [key_img_encs2[min(num,  len(key_img_encs2)-1)][0]]  * steps if len(key_img_encs2)  > 0 else []
+        
+        if a.dualmod is not None:
+            txt_encs  = intrl(txt_encs,  txt_encs2,  a.dualmod)
+            styl_encs = intrl(styl_encs, styl_encs2, a.dualmod)
+            img_encs  = intrl(img_encs,  img_encs2,  a.dualmod)
+            del txt_encs2, styl_encs2, img_encs2
         
         if a.verbose is True: 
             if len(texts)  > 0: print(' ref text: ',  texts[min(num, len(texts)-1)][:80])
@@ -301,6 +341,12 @@ def main():
             txt_enc  = txt_encs[ii % len(txt_encs)].unsqueeze(0)   if len(txt_encs)  > 0 else None
             styl_enc = styl_encs[ii % len(styl_encs)].unsqueeze(0) if len(styl_encs) > 0 else None
             img_enc  = img_encs[ii % len(img_encs)].unsqueeze(0)   if len(img_encs)  > 0 else None
+
+            if a.in_txt0 is not None:
+                not_encs = not_encs2  if a.dualmod is not None and ii in dualmod_nums else not_encs
+            model_clip_ = model_clip2 if a.dualmod is not None and ii in dualmod_nums else model_clip
+            if a.aest != 0:
+                aest_ = aest2         if a.dualmod is not None and ii in dualmod_nums else aest
 
             # MOTION: transform frame, reload params
 
@@ -356,7 +402,10 @@ def main():
                 img_out = image_f(noise, fixcontrast=a.fixcontrast)
                 
                 img_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align, a.macro)[0]
-                out_enc = model_clip.encode_image(img_sliced)
+                out_enc = model_clip_.encode_image(img_sliced)
+
+                if a.aest != 0 and a.model in ['ViT-B/32', 'ViT-B/16', 'ViT-L/14'] and aest_ is not None:
+                    loss -= 0.001 * a.aest * aest_(out_enc).mean()
 
                 if a.gen == 'RGB': # empirical hack
                     loss += abs(img_out.mean((2,3)) - 0.45).mean() # fix brightness
@@ -369,13 +418,13 @@ def main():
                 if img_enc is not None:
                     loss -= a.weight_img * sim_func(img_enc, out_enc, a.sim)
                 if a.in_txt0 is not None: # subtract text
-                    for anti_txt_enc in anti_txt_encs:
-                        loss += 0.3 * sim_func(anti_txt_enc, out_enc, a.sim)
+                    for not_enc in not_encs:
+                        loss += 0.3 * sim_func(not_enc, out_enc, a.sim)
                 if a.sharp != 0: # scharr|sobel|naive
                     loss -= a.sharp * derivat(img_out, mode='naive')
                 if a.enforce != 0:
                     img_sliced = slice_imgs([image_f(noise, fixcontrast=a.fixcontrast)], a.samples, a.modsize, trform_f, a.align, a.macro)[0]
-                    out_enc2 = model_clip.encode_image(img_sliced)
+                    out_enc2 = model_clip_.encode_image(img_sliced)
                     loss -= a.enforce * sim_func(out_enc, out_enc2, a.sim)
                     del out_enc2; torch.cuda.empty_cache()
                 if a.expand > 0:

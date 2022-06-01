@@ -29,6 +29,14 @@ def plot_text(txt, size=224):
 def txt_clean(txt):
     return txt.translate(str.maketrans(dict.fromkeys(list("\n',.вЂ”|!?/:;\\"), ""))).replace(' ', '_').replace('"', '')
 
+def intrl(a, b, step=2):
+    assert len(a) == len(b), ' diff lengths: %d %d' % (len(a), len(b))
+    assert step > 1
+    nums = list(range(len(a)))[step::step]
+    for num in nums:
+        a[num] = b[num]
+    return a
+
 def old_torch():
     ver = [int(i) for i in torch.__version__.split('.')[:2]]
     return True if (ver[0] < 2 and ver[1] < 8) else False
@@ -387,3 +395,20 @@ def latent_anima(shape, frames, transit, key_latents=None, smooth=0.5, uniform=F
         latents = latents[1:]
     return latents
     
+# = = = = = = = = = = = = = = = = = = = = = = = = = = = 
+
+# from https://github.com/LAION-AI/aesthetic-predictor    
+from urllib.request import urlretrieve  # pylint: disable=import-outside-toplevel
+def aesthetic_model(clip_model='ViT-B/32'):
+    nf = 768 if clip_model == "ViT-L/14" else 512 if clip_model in ['ViT-B/16', 'ViT-B/32'] else None
+    clip_model = clip_model.replace('/','_').replace('-','_').lower()
+    path_to_model = 'sa_0_4_%s_linear.pth' % clip_model
+    if not os.path.isfile(path_to_model):
+        url_model = "https://github.com/LAION-AI/aesthetic-predictor/blob/main/sa_0_4_" + clip_model + "_linear.pth?raw=true"
+        urlretrieve(url_model, path_to_model)
+    if nf is None or not os.path.isfile(path_to_model): return None
+    m = torch.nn.Linear(nf, 1)
+    m.load_state_dict(torch.load(path_to_model))
+    m.eval().half()
+    return m
+

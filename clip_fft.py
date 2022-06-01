@@ -22,7 +22,7 @@ from sentence_transformers import SentenceTransformer
 import lpips
 
 from aphantasia.image import to_valid_rgb, fft_image, dwt_image
-from aphantasia.utils import slice_imgs, derivat, sim_func, basename, img_list, img_read, plot_text, txt_clean, checkout, old_torch
+from aphantasia.utils import slice_imgs, derivat, sim_func, aesthetic_model, basename, img_list, img_read, plot_text, txt_clean, checkout, old_torch
 from aphantasia import transforms
 try: # progress bar for notebooks 
     get_ipython().__class__.__name__
@@ -55,6 +55,7 @@ def get_args():
     parser.add_argument(       '--samples', default=200, type=int, help='Samples to evaluate')
     parser.add_argument(       '--lrate',   default=0.05, type=float, help='Learning rate')
     parser.add_argument('-p',  '--prog',    action='store_true', help='Enable progressive lrate growth (up to double a.lrate)')
+    parser.add_argument('-dm', '--dualmod', default=None, type=int, help='Every this step use another CLIP ViT model')
     # wavelet
     parser.add_argument(       '--dwt',     action='store_true', help='Use DWT instead of FFT')
     parser.add_argument('-w',  '--wave',    default='coif2', help='wavelets: db[1..], coif[1..], haar, dmey')
@@ -67,6 +68,7 @@ def get_args():
     parser.add_argument(       '--decay',   default=1.5, type=float)
     parser.add_argument('-sh', '--sharp',   default=0., type=float)
     parser.add_argument('-mm', '--macro',   default=0.4, type=float, help='Endorse macro forms 0..1 ')
+    parser.add_argument(       '--aest',    default=0., type=float, help='Enhance aesthetics')
     parser.add_argument('-e',  '--enforce', default=0, type=float, help='Enforce details (by boosting similarity between two parallel samples)')
     parser.add_argument('-x',  '--expand',  default=0, type=float, help='Boosts diversity (by enforcing difference between prev/next samples)')
     parser.add_argument('-n',  '--noise',   default=0, type=float, help='Add noise to suppress accumulation') # < 0.05 ?
@@ -82,6 +84,9 @@ def get_args():
     if a.multilang is True: a.model = 'ViT-B/32' # sbert model is trained with ViT
     if a.translate is True and googletrans_ok is not True: 
         print('\n Install googletrans module to enable translation!'); exit()
+    if a.dualmod is not None: 
+        a.model = 'ViT-B/32'
+        a.sim = 'cossim'
     
     return a
 
@@ -125,7 +130,18 @@ def main():
     if a.multilang is True:
         model_lang = SentenceTransformer('clip-ViT-B-32-multilingual-v1').cuda()
 
-    def enc_text(txt):
+    if a.dualmod is not None: # second is vit-16
+        model_clip2, _ = clip.load('ViT-B/16', jit=old_torch())
+        a.samples = int(a.samples * 0.2)
+        dualmod_nums = list(range(a.steps))[a.dualmod::a.dualmod]
+        print(' dual model every %d step' % a.dualmod)
+
+    if a.aest != 0 and a.model in ['ViT-B/32', 'ViT-B/16', 'ViT-L/14']:
+        aest = aesthetic_model(a.model).cuda()
+        if a.dualmod is not None:
+            aest2 = aesthetic_model('ViT-B/16').cuda()
+    
+    def enc_text(txt, model_clip=model_clip):
         if a.multilang is True:
             emb = model_lang.encode([txt], convert_to_tensor=True, show_progress_bar=False)
         else:
@@ -158,10 +174,13 @@ def main():
             if a.verbose is True: print(' translated to:', a.in_txt) 
         txt_enc = enc_text(a.in_txt)
         out_name.append(txt_clean(a.in_txt).lower()[:40])
-
+        if a.dualmod is not None:
+            txt_enc2 = enc_text(a.in_txt, model_clip2)
         if a.notext > 0:
             txt_plot = torch.from_numpy(plot_text(a.in_txt, a.modsize)/255.).unsqueeze(0).permute(0,3,1,2).cuda()
             txt_plot_enc = model_clip.encode_image(txt_plot).detach().clone()
+            if a.dualmod is not None:
+                txt_plot_enc2 = model_clip2.encode_image(txt_plot).detach().clone()
 
     if a.in_txt2 is not None:
         if a.verbose is True: print(' style text:', a.in_txt2)
@@ -170,8 +189,10 @@ def main():
             translator = Translator()
             a.in_txt2 = translator.translate(a.in_txt2, dest='en').text
             if a.verbose is True: print(' translated to:', a.in_txt2) 
-        txt_enc2 = enc_text(a.in_txt2)
+        style_enc = enc_text(a.in_txt2)
         out_name.append(txt_clean(a.in_txt2).lower()[:40])
+        if a.dualmod is not None:
+            style_enc2 = enc_text(a.in_txt2, model_clip2)
 
     if a.in_txt0 is not None:
         if a.verbose is True: print(' subtract text:', a.in_txt0)
@@ -180,8 +201,10 @@ def main():
             translator = Translator()
             a.in_txt0 = translator.translate(a.in_txt0, dest='en').text
             if a.verbose is True: print(' translated to:', a.in_txt0) 
-        txt_enc0 = enc_text(a.in_txt0)
+        not_enc = enc_text(a.in_txt0)
         out_name.append('off-' + txt_clean(a.in_txt0).lower()[:40])
+        if a.dualmod is not None:
+            not_enc2 = enc_text(a.in_txt0, model_clip2)
 
     if a.multilang is True: del model_lang
 
@@ -191,6 +214,8 @@ def main():
         img_in = img_in[:,:3,:,:] # fix rgb channels
         in_sliced = slice_imgs([img_in], a.samples, a.modsize, transforms.normalize(), a.align)[0]
         img_enc = model_clip.encode_image(in_sliced).detach().clone()
+        if a.dualmod is not None:
+            img_enc2 = model_clip2.encode_image(in_sliced).detach().clone()
         if a.sync > 0:
             sim_loss = lpips.LPIPS(net='vgg', verbose=False).cuda()
             sim_size = [s//2 for s in a.size]
@@ -213,18 +238,33 @@ def main():
         noise = a.noise * torch.rand(1, 1, *params[0].shape[2:4], 1).cuda() if a.noise > 0 else None
         img_out = image_f(noise)
         img_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align, a.macro)[0]
-        out_enc = model_clip.encode_image(img_sliced)
 
+        txt_enc_        = txt_enc2      if a.dualmod is not None and i in dualmod_nums else txt_enc
+        if a.in_txt2 is not None:
+            style_enc_  = style_enc2    if a.dualmod is not None and i in dualmod_nums else style_enc
+        if a.in_img is not None and os.path.isfile(a.in_img):
+            img_enc_    = img_enc2      if a.dualmod is not None and i in dualmod_nums else img_enc
+        if a.in_txt0 is not None:
+            not_enc_    = not_enc2      if a.dualmod is not None and i in dualmod_nums else not_enc
+        if a.notext > 0:
+            txtpic_enc_ = txt_plot_enc2 if a.dualmod is not None and i in dualmod_nums else txt_plot_enc
+        model_clip_     = model_clip2   if a.dualmod is not None and i in dualmod_nums else model_clip
+        if a.aest != 0:
+            aest_       = aest2         if a.dualmod is not None and i in dualmod_nums else aest
+
+        out_enc = model_clip_.encode_image(img_sliced)
+        if a.aest != 0 and aest_ is not None:
+            loss -= 0.001 * a.aest * aest_(out_enc).mean()
         if a.in_txt is not None: # input text
-            loss +=  sign * sim_func(txt_enc, out_enc, a.sim)
+            loss +=  sign * sim_func(txt_enc_, out_enc, a.sim)
             if a.notext > 0:
-                loss -= sign * a.notext * sim_func(txt_plot_enc, out_enc, a.sim)
+                loss -= sign * a.notext * sim_func(txtpic_enc_, out_enc, a.sim)
         if a.in_txt2 is not None: # input text - style
-            loss +=  sign * a.weight2 * sim_func(txt_enc2, out_enc, a.sim)
+            loss +=  sign * a.weight2 * sim_func(style_enc_, out_enc, a.sim)
         if a.in_txt0 is not None: # subtract text
-            loss += -sign * 0.3 * sim_func(txt_enc0, out_enc, a.sim)
+            loss += -sign * 0.3 * sim_func(not_enc_, out_enc, a.sim)
         if a.in_img is not None and os.path.isfile(a.in_img): # input image
-            loss +=  sign * 0.5 * sim_func(img_enc, out_enc, a.sim)
+            loss +=  sign * 0.5 * sim_func(img_enc_, out_enc, a.sim)
         if a.sync > 0 and a.in_img is not None and os.path.isfile(a.in_img): # image composition
             prog_sync = (a.steps // a.opt_step - i) / (a.steps // a.opt_step)
             loss += prog_sync * a.sync * sim_loss(F.interpolate(img_out, sim_size, mode='bicubic', align_corners=True).float(), img_in, normalize=True).squeeze()
@@ -233,7 +273,7 @@ def main():
             # loss -= a.sharp * derivat(img_sliced, mode='scharr')
         if a.enforce != 0:
             img_sliced = slice_imgs([image_f(noise)], a.samples, a.modsize, trform_f, a.align, a.macro)[0]
-            out_enc2 = model_clip.encode_image(img_sliced)
+            out_enc2 = model_clip_.encode_image(img_sliced)
             loss -= a.enforce * sim_func(out_enc, out_enc2, a.sim)
             del out_enc2; torch.cuda.empty_cache()
         if a.expand > 0:
