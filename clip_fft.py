@@ -62,7 +62,7 @@ def get_args():
     # tweaks
     parser.add_argument('-a',  '--align',   default='uniform', choices=['central', 'uniform', 'overscan', 'overmax'], help='Sampling distribution')
     parser.add_argument('-tf', '--transform', default='fast', choices=['none', 'fast', 'custom', 'elastic'], help='augmenting transforms')
-    parser.add_argument('-opt', '--optimizer', default='adam', choices=['adam', 'adamw'], help='Optimizer')
+    parser.add_argument('-opt', '--optimizer', default='adam', choices=['adam', 'adamw', 'adam_custom', 'adamw_custom'], help='Optimizer')
     parser.add_argument(       '--contrast', default=1.1, type=float)
     parser.add_argument(       '--colors',  default=1.8, type=float)
     parser.add_argument(       '--decay',   default=1.5, type=float)
@@ -132,7 +132,7 @@ def main():
 
     if a.dualmod is not None: # second is vit-16
         model_clip2, _ = clip.load('ViT-B/16', jit=old_torch())
-        a.samples = int(a.samples * 0.2)
+        a.samples = int(a.samples * 0.23)
         dualmod_nums = list(range(a.steps))[a.dualmod::a.dualmod]
         print(' dual model every %d step' % a.dualmod)
 
@@ -227,7 +227,7 @@ def main():
 
     if a.verbose is True: print(' samples:', a.samples)
     out_name = '-'.join(out_name)
-    out_name += '-%s' % a.model if 'RN' in a.model.upper() else ''
+    out_name += '-%s' % a.model.replace('/','').replace('-','') if a.dualmod is None else '-dm%d' % a.dualmod
     tempdir = os.path.join(a.out_dir, out_name)
     os.makedirs(tempdir, exist_ok=True)
 
@@ -239,7 +239,8 @@ def main():
         img_out = image_f(noise)
         img_sliced = slice_imgs([img_out], a.samples, a.modsize, trform_f, a.align, a.macro)[0]
 
-        txt_enc_        = txt_enc2      if a.dualmod is not None and i in dualmod_nums else txt_enc
+        if a.in_txt is not None: # input text
+            txt_enc_    = txt_enc2      if a.dualmod is not None and i in dualmod_nums else txt_enc
         if a.in_txt2 is not None:
             style_enc_  = style_enc2    if a.dualmod is not None and i in dualmod_nums else style_enc
         if a.in_img is not None and os.path.isfile(a.in_img):
