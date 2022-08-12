@@ -60,7 +60,7 @@ def get_args():
     parser.add_argument('-m',  '--model',   default='ViT-B/32', choices=clip_models, help='Select CLIP model to use')
     parser.add_argument(       '--steps',   default=300, type=int, help='Iterations (frames) per scene (text line)')
     parser.add_argument(       '--samples', default=100, type=int, help='Samples to evaluate per frame')
-    parser.add_argument('-lr', '--lrate',   default=1, type=float, help='Learning rate')
+    parser.add_argument('-lr', '--lrate',   default=0.03, type=float, help='Learning rate')
     parser.add_argument('-dm', '--dualmod', default=None, type=int, help='Every this step use another CLIP ViT model')
     # motion
     parser.add_argument('-ops', '--opt_step', default=1, type=int, help='How many optimizing steps per save/transform step')
