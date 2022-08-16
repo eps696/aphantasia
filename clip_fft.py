@@ -34,11 +34,13 @@ clip_models = ['ViT-B/16', 'ViT-B/32', 'RN101', 'RN50x16', 'RN50x4', 'RN50']
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i',  '--in_img',  default=None, help='input image')
     parser.add_argument('-t',  '--in_txt',  default=None, help='input text')
     parser.add_argument('-t2', '--in_txt2', default=None, help='input text - style')
-    parser.add_argument('-w2', '--weight2', default=0.5, type=float, help='weight for style')
     parser.add_argument('-t0', '--in_txt0', default=None, help='input text to subtract')
+    parser.add_argument('-i',  '--in_img',  default=None, help='input image')
+    parser.add_argument('-w2', '--weight2', default=0.7, type=float, help='weight for style')
+    parser.add_argument('-w0', '--weight0', default=0.5, type=float, help='weight for subtraction')
+    parser.add_argument('-wi', '--weight_img', default=0.5, type=float, help='weight for images')
     parser.add_argument(       '--out_dir', default='_out')
     parser.add_argument('-s',  '--size',    default='1280-720', help='Output resolution')
     parser.add_argument('-r',  '--resume',  default=None, help='Path to saved FFT snapshots, to resume from')
@@ -53,7 +55,7 @@ def get_args():
     parser.add_argument('-m',  '--model',   default='ViT-B/32', choices=clip_models, help='Select CLIP model to use')
     parser.add_argument(       '--steps',   default=200, type=int, help='Total iterations')
     parser.add_argument(       '--samples', default=200, type=int, help='Samples to evaluate')
-    parser.add_argument(       '--lrate',   default=0.05, type=float, help='Learning rate')
+    parser.add_argument('-lr', '--lrate',   default=0.05, type=float, help='Learning rate')
     parser.add_argument('-p',  '--prog',    action='store_true', help='Enable progressive lrate growth (up to double a.lrate)')
     parser.add_argument('-dm', '--dualmod', default=None, type=int, help='Every this step use another CLIP ViT model')
     # wavelet
@@ -247,7 +249,7 @@ def main():
             img_enc_    = img_enc2      if a.dualmod is not None and i in dualmod_nums else img_enc
         if a.in_txt0 is not None:
             not_enc_    = not_enc2      if a.dualmod is not None and i in dualmod_nums else not_enc
-        if a.notext > 0:
+        if a.notext > 0 and a.in_txt is not None:
             txtpic_enc_ = txt_plot_enc2 if a.dualmod is not None and i in dualmod_nums else txt_plot_enc
         model_clip_     = model_clip2   if a.dualmod is not None and i in dualmod_nums else model_clip
         if a.aest != 0:
@@ -263,9 +265,9 @@ def main():
         if a.in_txt2 is not None: # input text - style
             loss +=  sign * a.weight2 * sim_func(style_enc_, out_enc, a.sim)
         if a.in_txt0 is not None: # subtract text
-            loss += -sign * 0.3 * sim_func(not_enc_, out_enc, a.sim)
+            loss += -sign * a.weight0 * sim_func(not_enc_, out_enc, a.sim)
         if a.in_img is not None and os.path.isfile(a.in_img): # input image
-            loss +=  sign * 0.5 * sim_func(img_enc_, out_enc, a.sim)
+            loss +=  sign * a.weight_img * sim_func(img_enc_, out_enc, a.sim)
         if a.sync > 0 and a.in_img is not None and os.path.isfile(a.in_img): # image composition
             prog_sync = (a.steps // a.opt_step - i) / (a.steps // a.opt_step)
             loss += prog_sync * a.sync * sim_loss(F.interpolate(img_out, sim_size, mode='bicubic', align_corners=True).float(), img_in, normalize=True).squeeze()
