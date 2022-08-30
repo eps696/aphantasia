@@ -45,8 +45,6 @@ def get_args():
     parser.add_argument('-t2', '--in_txt2', default=None, help='Text string or file to process (style)')
     parser.add_argument('-t0', '--in_txt0', default=None, help='input text to subtract')
     parser.add_argument('-im', '--in_img',  default=None, help='input image or directory with images')
-    parser.add_argument('-w0', '--weight0', default=0.3, type=float, help='weight for subtraction')
-    parser.add_argument('-w2', '--weight2', default=0.5, type=float, help='weight for style')
     parser.add_argument('-wi', '--weight_img', default=0.5, type=float, help='weight for images')
     parser.add_argument('-r',  '--resume',  default=None, help='Resume from saved params or from an image')
     parser.add_argument(       '--out_dir', default='_out')
@@ -60,7 +58,7 @@ def get_args():
     parser.add_argument('-m',  '--model',   default='ViT-B/32', choices=clip_models, help='Select CLIP model to use')
     parser.add_argument(       '--steps',   default=300, type=int, help='Iterations (frames) per scene (text line)')
     parser.add_argument(       '--samples', default=100, type=int, help='Samples to evaluate per frame')
-    parser.add_argument('-lr', '--lrate',   default=0.03, type=float, help='Learning rate')
+    parser.add_argument('-lr', '--lrate',   default=0.1, type=float, help='Learning rate')
     parser.add_argument('-dm', '--dualmod', default=None, type=int, help='Every this step use another CLIP ViT model')
     # motion
     parser.add_argument('-ops', '--opt_step', default=1, type=int, help='How many optimizing steps per save/transform step')
@@ -81,7 +79,7 @@ def get_args():
     # tweaks
     parser.add_argument('-a',  '--align',   default='overscan', choices=['central', 'uniform', 'overscan', 'overmax'], help='Sampling distribution')
     parser.add_argument('-tf', '--transform', default='fast', choices=['none', 'fast', 'custom', 'elastic'], help='augmenting transforms')
-    parser.add_argument('-opt', '--optimizer', default='adam', choices=['adam', 'adam_custom', 'adamw', 'adamw_custom'], help='Optimizer')
+    parser.add_argument('-opt', '--optimizer', default='adam_custom', choices=['adam', 'adam_custom', 'adamw', 'adamw_custom'], help='Optimizer')
     parser.add_argument(       '--fixcontrast', action='store_true', help='Required for proper resuming from image')
     parser.add_argument(       '--contrast', default=1.2, type=float)
     parser.add_argument(       '--colors',  default=2.3, type=float)
@@ -182,10 +180,16 @@ def main():
         trform_f = transforms.normalize()
 
     def enc_text(txt, model_clip=model_clip):
-        if a.translate:
-            txt = translator.translate(txt, dest='en').text
-        emb = model_clip.encode_text(clip.tokenize(txt).cuda()[:77])
-        return emb.detach().clone()
+        if txt is None or len(txt)==0: return None
+        embs = []
+        for subtxt in txt.split('|'):
+            if ':' in subtxt:
+                [subtxt, wt] = subtxt.split(':')
+                wt = float(wt)
+            else: wt = 1.
+            emb = model_clip.encode_text(clip.tokenize(subtxt).cuda()[:77])
+            embs.append([emb.detach().clone(), wt])
+        return embs
 
     def enc_image(img_file, model_clip=model_clip):
         img_t = torch.from_numpy(img_read(img_file)/255.).unsqueeze(0).permute(0,3,1,2).cuda()[:,:3,:,:]
@@ -193,39 +197,60 @@ def main():
         emb = model_clip.encode_image(in_sliced)
         return emb.detach().clone()
 
+    def read_text(in_txt):
+        if os.path.isfile(in_txt):
+            with open(in_txt, 'r', encoding="utf-8") as f:
+                lines = f.read().splitlines()
+            texts = []
+            for tt in lines:
+                if len(tt.strip()) == 0: texts.append('')
+                elif tt.strip()[0] != '#': texts.append(tt.strip())
+        else:
+            texts = [in_txt]
+        return texts
+    
     # Encode inputs
     count = 0
     texts = []
     styles = []
+    notexts = []
     images = []
     
     if a.in_txt is not None:
-        if os.path.isfile(a.in_txt):
-            with open(a.in_txt, 'r', encoding="utf-8") as f:
-                texts = f.readlines()
-                texts = [tt.strip() for tt in texts if len(tt.strip()) > 0 and tt[0] != '#']
-        else:
-            texts = [a.in_txt]
+        texts = read_text(a.in_txt)
     if a.in_txt_pre is not None:
-        texts = [' '.join([a.in_txt_pre, tt]).strip() for tt in texts]
+        pretexts = read_text(a.in_txt_pre)
+        texts = [' | '.join([pick_(pretexts, n), texts[n]]).strip() for n in range(len(texts))]
     if a.in_txt_post is not None:
-        texts = [' '.join([tt, a.in_txt_post]).strip() for tt in texts]
+        postexts = read_text(a.in_txt_post)
+        texts = [' | '.join([texts[n], pick_(postexts, n)]).strip() for n in range(len(texts))]
+    if a.translate is True:
+        texts = [tr.text for tr in translator.translate(texts)]
+        # print(' texts trans', texts)
     key_txt_encs = [enc_text(txt) for txt in texts]
     if a.dualmod is not None:
         key_txt_encs2 = [enc_text(txt, model_clip2) for txt in texts]
     count = max(count, len(key_txt_encs))
 
     if a.in_txt2 is not None:
-        if os.path.isfile(a.in_txt2):
-            with open(a.in_txt2, 'r', encoding="utf-8") as f:
-                styles = f.readlines()
-                styles = [tt.strip() for tt in styles if len(tt.strip()) > 0 and tt[0] != '#']
-        else:
-            styles = [a.in_txt2]
+        styles = read_text(a.in_txt2)
+    if a.translate is True:
+        styles = [tr.text for tr in translator.translate(styles)]
+        # print(' styles trans', styles)
     key_styl_encs = [enc_text(style) for style in styles]
     if a.dualmod is not None:
         key_styl_encs2 = [enc_text(style, model_clip2) for style in styles]
     count = max(count, len(key_styl_encs))
+
+    if a.in_txt0 is not None:
+        notexts = read_text(a.in_txt0)
+    if a.translate is True:
+        notexts = [tr.text for tr in translator.translate(notexts)]
+        # print(' notexts trans', notexts)
+    key_not_encs = [enc_text(notext) for notext in notexts]
+    if a.dualmod is not None:
+        key_not_encs2 = [enc_text(notext, model_clip2) for notext in notexts]
+    count = max(count, len(key_not_encs))
 
     if a.in_img is not None and os.path.exists(a.in_img):
         images = file_list(a.in_img) if os.path.isdir(a.in_img) else [a.in_img]
@@ -236,14 +261,6 @@ def main():
     
     assert count > 0, "No inputs found!"
     
-    if a.in_txt0 is not None:
-        if a.verbose is True: print(' subtract text:', a.in_txt0)
-        if a.translate:
-            a.in_txt0 = translator.translate(a.in_txt0, dest='en').text
-        not_encs = [enc_text(txt) for txt in a.in_txt0.split('.')]
-        if a.dualmod is not None:
-            not_encs2 = [enc_text(style, model_clip2) for txt in a.in_txt0.split('.')]
-
     if a.verbose is True: print(' samples:', a.samples)
 
     global params_tmp
@@ -300,50 +317,54 @@ def main():
         if cnt == 0: return []
         enc_1 = encs[min(num,   cnt-1)]
         enc_2 = encs[min(num+1, cnt-1)]
-        return slerp(enc_1, enc_2, steps)
+        if a.interpol is not True: return [enc_1] * steps
+        enc_pairs = []
+        for i in range(steps):
+            enc1_step = []
+            if enc_1 is not None:
+                for enc, wt in enc_1:
+                    enc1_step.append([enc, wt * (steps-i)/steps])
+            enc2_step = []
+            if enc_2 is not None:
+                for enc, wt in enc_2:
+                    enc2_step.append([enc, wt * i/steps])
+            enc_pairs.append(enc1_step + enc2_step)
+        return enc_pairs
 
     prev_enc = 0
     def process(num):
         global params_tmp, opt_state, params, image_f, optimizer
 
-        if a.interpol is True: # linear topics interpolation
-            txt_encs  = get_encs(key_txt_encs,  num)
-            styl_encs = get_encs(key_styl_encs, num)
-            img_encs  = get_encs(key_img_encs,  num)
-            if a.dualmod is not None:
-                txt_encs2  = get_encs(key_txt_encs2,  num)
-                styl_encs2 = get_encs(key_styl_encs2, num)
-                img_encs2  = get_encs(key_img_encs2,  num)
-        else: # change by cut
-            txt_encs  = [key_txt_encs[min(num,  len(key_txt_encs)-1)][0]]  * steps if len(key_txt_encs)  > 0 else []
-            styl_encs = [key_styl_encs[min(num, len(key_styl_encs)-1)][0]] * steps if len(key_styl_encs) > 0 else []
-            img_encs  = [key_img_encs[min(num,  len(key_img_encs)-1)][0]]  * steps if len(key_img_encs)  > 0 else []
-            if a.dualmod is not None:
-                txt_encs2  = [key_txt_encs2[min(num,  len(key_txt_encs2)-1)][0]]  * steps if len(key_txt_encs2)  > 0 else []
-                styl_encs2 = [key_styl_encs2[min(num, len(key_styl_encs2)-1)][0]] * steps if len(key_styl_encs2) > 0 else []
-                img_encs2  = [key_img_encs2[min(num,  len(key_img_encs2)-1)][0]]  * steps if len(key_img_encs2)  > 0 else []
-        
+        txt_encs  = get_encs(key_txt_encs,  num)
+        styl_encs = get_encs(key_styl_encs, num)
+        not_encs  = get_encs(key_not_encs,  num)
+        img_encs  = get_encs(key_img_encs,  num)
         if a.dualmod is not None:
+            txt_encs2  = get_encs(key_txt_encs2,  num)
+            styl_encs2 = get_encs(key_styl_encs2, num)
+            not_encs2  = get_encs(key_not_encs2,  num)
+            img_encs2  = get_encs(key_img_encs2,  num)
             txt_encs  = intrl(txt_encs,  txt_encs2,  a.dualmod)
             styl_encs = intrl(styl_encs, styl_encs2, a.dualmod)
+            not_encs  = intrl(not_encs,  not_encs2,  a.dualmod)
             img_encs  = intrl(img_encs,  img_encs2,  a.dualmod)
-            del txt_encs2, styl_encs2, img_encs2
+            del txt_encs2, styl_encs2, not_encs2, img_encs2
         
         if a.verbose is True: 
             if len(texts)  > 0: print(' ref text: ',  texts[min(num, len(texts)-1)][:80])
             if len(styles) > 0: print(' ref style: ', styles[min(num, len(styles)-1)][:80])
+            if len(notexts) > 0: print(' ref avoid: ', notexts[min(num, len(notexts)-1)][:80])
             if len(images) > 0: print(' ref image: ', basename(images[min(num, len(images)-1)])[:80])
         
         pbar = ProgressBar(steps)
         for ii in range(steps):
             glob_step = num * steps + ii # save/transform
             
-            txt_enc  = txt_encs[ii % len(txt_encs)].unsqueeze(0)   if len(txt_encs)  > 0 else None
-            styl_enc = styl_encs[ii % len(styl_encs)].unsqueeze(0) if len(styl_encs) > 0 else None
-            img_enc  = img_encs[ii % len(img_encs)].unsqueeze(0)   if len(img_encs)  > 0 else None
+            txt_enc  = txt_encs[ii % len(txt_encs)]   if len(txt_encs)  > 0 else None
+            styl_enc = styl_encs[ii % len(styl_encs)] if len(styl_encs) > 0 else None
+            not_enc  = not_encs[ii  % len(not_encs)]  if len(not_encs)  > 0 else None
+            img_enc  = img_encs[ii % len(img_encs)]   if len(img_encs)  > 0 else None
 
-            if a.in_txt0 is not None:
-                not_encs = not_encs2  if a.dualmod is not None and ii in dualmod_nums else not_encs
             model_clip_ = model_clip2 if a.dualmod is not None and ii in dualmod_nums else model_clip
             if a.aest != 0:
                 aest_ = aest2         if a.dualmod is not None and ii in dualmod_nums else aest
@@ -412,14 +433,16 @@ def main():
                     loss += abs(img_out.std((2,3)) - 0.17).mean() # fix contrast
 
                 if txt_enc is not None:
-                    loss -= a.invert * sim_func(txt_enc, out_enc, a.sim)
+                    for enc, wt in txt_enc:
+                        loss -= a.invert * wt * sim_func(enc, out_enc, a.sim)
                 if styl_enc is not None:
-                    loss -= a.weight2 * sim_func(styl_enc, out_enc, a.sim)
+                    for enc, wt in styl_enc:
+                        loss -= wt * sim_func(enc, out_enc, a.sim)
+                if not_enc is not None: # subtract text
+                    for enc, wt in not_enc:
+                        loss += wt * sim_func(enc, out_enc, a.sim)
                 if img_enc is not None:
                     loss -= a.weight_img * sim_func(img_enc, out_enc, a.sim)
-                if a.in_txt0 is not None: # subtract text
-                    for not_enc in not_encs:
-                        loss += 0.3 * sim_func(not_enc, out_enc, a.sim)
                 if a.sharp != 0: # scharr|sobel|naive
                     loss -= a.sharp * derivat(img_out, mode='naive')
                 if a.enforce != 0:

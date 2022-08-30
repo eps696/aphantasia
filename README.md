@@ -55,6 +55,7 @@ For non-English languages use either `--multilang` (multi-language CLIP model, t
 python clip_fft.py -t "topic sentence" -t2 "style description" -t0 "avoid this" --size 1280-720 
 ```
 * Other options:  
+Text inputs understand syntax with weights, like `good prompt :1 | also good prompt :1 | bad prompt :-0.5`.  
 `--model M` selects one of the released CLIP visual models: `ViT-B/32` (default), `ViT-B/16`, `RN50`, `RN50x4`, `RN50x16`, `RN101`.  
 One can also set `--dualmod` to use `ViT-B/32` and `ViT-B/16` at once (preferrable).  
 `--dwt` switches to DWT (wavelets) generator instead of FFT. There are few methods, chosen by `--wave X`, e.g. `db2`, `db3`, `coif1`, `coif2`, etc.  
@@ -74,7 +75,6 @@ Current defaults are `--decay 1.5 --colors 1.8 --contrast 1.1 --sharp 0`.
 * Some experimental tricks with less definite effects:  
 `--enforce X` adds more details by boosting similarity between two parallel samples. good start is ~0.1.  
 `--expand X` boosts diversity by enforcing difference between prev/next samples. good start is ~0.3.  
-`--notext X` tries to remove "graffiti" by subtracting plotted text prompt. good start is ~0.1.  
 `--noise X` adds some noise to the parameters, possibly making composition less clogged (in a degree).  
 `--macro X` (from 0 to 1) shifts generation to bigger forms and less disperse composition. should not be too close to 1, since the quality depends on the variety of samples.  
 `--prog` sets progressive learning rate (from 0.1x to 2x of the one, set by `lrate`). it may boost macro forms creation in some cases (see more [here](https://github.com/eps696/aphantasia/issues/2)).  
@@ -98,6 +98,8 @@ python illustrip.py --in_txt mycontent.txt --in_txt2 mystyles.txt --size 1280-72
 ```
 python illustrip.py --in_txt "my super content" --in_txt2 "my super style" --size 1280-720 --steps 500
 ```
+Prefixes (`-pre`), postfixes (`-post`) and "stop words" (`--in_txt0`) may be loaded as phrases or text files as well.  
+All text inputs understand syntax with weights, like `good prompt :1 | also good prompt :1 | bad prompt :-0.5` (within one line).  
 One can also use image(s) as references with `--in_img` argument. Explore other arguments for more explicit control.  
 This method works best with direct RGB pixels optimization, but can also be used with FFT parameterization:
 ```

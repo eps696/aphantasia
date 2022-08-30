@@ -38,8 +38,6 @@ def get_args():
     parser.add_argument('-t2', '--in_txt2', default=None, help='input text - style')
     parser.add_argument('-t0', '--in_txt0', default=None, help='input text to subtract')
     parser.add_argument('-i',  '--in_img',  default=None, help='input image')
-    parser.add_argument('-w2', '--weight2', default=0.7, type=float, help='weight for style')
-    parser.add_argument('-w0', '--weight0', default=0.5, type=float, help='weight for subtraction')
     parser.add_argument('-wi', '--weight_img', default=0.5, type=float, help='weight for images')
     parser.add_argument(       '--out_dir', default='_out')
     parser.add_argument('-s',  '--size',    default='1280-720', help='Output resolution')
@@ -64,7 +62,7 @@ def get_args():
     # tweaks
     parser.add_argument('-a',  '--align',   default='uniform', choices=['central', 'uniform', 'overscan', 'overmax'], help='Sampling distribution')
     parser.add_argument('-tf', '--transform', default='fast', choices=['none', 'fast', 'custom', 'elastic'], help='augmenting transforms')
-    parser.add_argument('-opt', '--optimizer', default='adam', choices=['adam', 'adamw', 'adam_custom', 'adamw_custom'], help='Optimizer')
+    parser.add_argument('-opt', '--optimizer', default='adam_custom', choices=['adam', 'adamw', 'adam_custom', 'adamw_custom'], help='Optimizer')
     parser.add_argument(       '--contrast', default=1.1, type=float)
     parser.add_argument(       '--colors',  default=1.8, type=float)
     parser.add_argument(       '--decay',   default=1.5, type=float)
@@ -74,7 +72,6 @@ def get_args():
     parser.add_argument('-e',  '--enforce', default=0, type=float, help='Enforce details (by boosting similarity between two parallel samples)')
     parser.add_argument('-x',  '--expand',  default=0, type=float, help='Boosts diversity (by enforcing difference between prev/next samples)')
     parser.add_argument('-n',  '--noise',   default=0, type=float, help='Add noise to suppress accumulation') # < 0.05 ?
-    parser.add_argument('-nt', '--notext',  default=0, type=float, help='Subtract typed text as image (avoiding graffiti?), [0..1]')
     parser.add_argument('-c',  '--sync',    default=0, type=float, help='Sync output to input image')
     parser.add_argument(       '--invert',  action='store_true', help='Invert criteria')
     parser.add_argument(       '--sim',     default='mix', help='Similarity function (dot/angular/spherical/mixed; None = cossim)')
@@ -144,11 +141,18 @@ def main():
             aest2 = aesthetic_model('ViT-B/16').cuda()
     
     def enc_text(txt, model_clip=model_clip):
-        if a.multilang is True:
-            emb = model_lang.encode([txt], convert_to_tensor=True, show_progress_bar=False)
-        else:
-            emb = model_clip.encode_text(clip.tokenize(txt).cuda())
-        return emb.detach().clone()
+        embs = []
+        for subtxt in txt.split('|'):
+            if ':' in subtxt:
+                [subtxt, wt] = subtxt.split(':')
+                wt = float(wt)
+            else: wt = 1.
+            if a.multilang is True:
+                emb = model_lang.encode([subtxt], convert_to_tensor=True, show_progress_bar=False)
+            else:
+                emb = model_clip.encode_text(clip.tokenize(subtxt).cuda())
+            embs.append([emb.detach().clone(), wt])
+        return embs
     
     if a.enforce != 0:
         a.samples = int(a.samples * 0.5)
@@ -178,11 +182,6 @@ def main():
         out_name.append(txt_clean(a.in_txt).lower()[:40])
         if a.dualmod is not None:
             txt_enc2 = enc_text(a.in_txt, model_clip2)
-        if a.notext > 0:
-            txt_plot = torch.from_numpy(plot_text(a.in_txt, a.modsize)/255.).unsqueeze(0).permute(0,3,1,2).cuda()
-            txt_plot_enc = model_clip.encode_image(txt_plot).detach().clone()
-            if a.dualmod is not None:
-                txt_plot_enc2 = model_clip2.encode_image(txt_plot).detach().clone()
 
     if a.in_txt2 is not None:
         if a.verbose is True: print(' style text:', a.in_txt2)
@@ -249,8 +248,6 @@ def main():
             img_enc_    = img_enc2      if a.dualmod is not None and i in dualmod_nums else img_enc
         if a.in_txt0 is not None:
             not_enc_    = not_enc2      if a.dualmod is not None and i in dualmod_nums else not_enc
-        if a.notext > 0 and a.in_txt is not None:
-            txtpic_enc_ = txt_plot_enc2 if a.dualmod is not None and i in dualmod_nums else txt_plot_enc
         model_clip_     = model_clip2   if a.dualmod is not None and i in dualmod_nums else model_clip
         if a.aest != 0:
             aest_       = aest2         if a.dualmod is not None and i in dualmod_nums else aest
@@ -259,13 +256,14 @@ def main():
         if a.aest != 0 and aest_ is not None:
             loss -= 0.001 * a.aest * aest_(out_enc).mean()
         if a.in_txt is not None: # input text
-            loss +=  sign * sim_func(txt_enc_, out_enc, a.sim)
-            if a.notext > 0:
-                loss -= sign * a.notext * sim_func(txtpic_enc_, out_enc, a.sim)
+            for enc, wt in txt_enc_:
+                loss +=  sign * wt * sim_func(enc, out_enc, a.sim)
         if a.in_txt2 is not None: # input text - style
-            loss +=  sign * a.weight2 * sim_func(style_enc_, out_enc, a.sim)
+            for enc, wt in style_enc_:
+                loss +=  sign * wt * sim_func(enc, out_enc, a.sim)
         if a.in_txt0 is not None: # subtract text
-            loss += -sign * a.weight0 * sim_func(not_enc_, out_enc, a.sim)
+            for enc, wt in not_enc_:
+                loss += -sign * wt * sim_func(enc, out_enc, a.sim)
         if a.in_img is not None and os.path.isfile(a.in_img): # input image
             loss +=  sign * a.weight_img * sim_func(img_enc_, out_enc, a.sim)
         if a.sync > 0 and a.in_img is not None and os.path.isfile(a.in_img): # image composition
