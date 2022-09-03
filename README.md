@@ -108,18 +108,17 @@ python illustrip.py ... --gen FFT --smooth --align uniform --colors 1.8 --contra
 
 To add 3D look, download [AdaBins model] to the main directory, and add `--depth 0.01` to the command.
 
-### Illustra *[probably obsolete]*
+### Illustra 
 
-Old method, generating separate images for every text line (with sequences and training videos, as in single-image mode above), then rendering final video from those (mixing images in FFT space) of the `length` duration in seconds.  
+Generates separate images for every text line (with sequences and training videos, as in single-image mode above), then renders final video from those (mixing images in FFT space) of the `length` duration in seconds.  
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/eps696/aphantasia/blob/master/Illustra.ipynb)
 
 * Make video from a text file, processing it line by line:
 ```
-python illustra.py -i mysong.txt --size 1280-720 --length 155
+python illustra.py -t mysong.txt --size 1280-720 --length 155
 ```
-There is `--keep X` parameter, controlling how well the next line/image generation follows the previous. By default X = 0, and every frame is produced independently (i.e. randomly initiated). 
-Setting it higher starts each generation closer to the average of previous runs, effectively keeping the compositions more similar and the transitions smoother. Safe values are < 0.5 (higher numbers may cause the imagery getting stuck). This behaviour depends on the input, so test with your prompts and see what's better in your case.
+There is `--keep X` parameter, controlling how well the next line/image generation follows the previous. 0 means it's randomly initiated, the higher - the stricter it will keep the original composition. Safe values are 1~2 (much higher numbers may cause the imagery getting stuck). 
 
 * Make video from a directory with saved *.pt snapshots (just interpolate them):
 ```
