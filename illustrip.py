@@ -322,12 +322,18 @@ def main():
         for i in range(steps):
             enc1_step = []
             if enc_1 is not None:
-                for enc, wt in enc_1:
-                    enc1_step.append([enc, wt * (steps-i)/steps])
+                if isinstance(enc_1, list):
+                    for enc, wt in enc_1:
+                        enc1_step.append([enc, wt * (steps-i)/steps])
+                else:
+                    enc1_step.append(enc_1 * (steps-i)/steps)
             enc2_step = []
             if enc_2 is not None:
-                for enc, wt in enc_2:
-                    enc2_step.append([enc, wt * i/steps])
+                if isinstance(enc_2, list):
+                    for enc, wt in enc_2:
+                        enc2_step.append([enc, wt * i/steps])
+                else:
+                    enc2_step.append(enc_2 * (steps-i)/steps)
             enc_pairs.append(enc1_step + enc2_step)
         return enc_pairs
 
@@ -442,7 +448,8 @@ def main():
                     for enc, wt in not_enc:
                         loss += wt * sim_func(enc, out_enc, a.sim)
                 if img_enc is not None:
-                    loss -= a.weight_img * sim_func(img_enc, out_enc, a.sim)
+                    for enc in img_enc:
+                        loss -= a.weight_img * sim_func(enc, out_enc, a.sim)
                 if a.sharp != 0: # scharr|sobel|naive
                     loss -= a.sharp * derivat(img_out, mode='naive')
                 if a.enforce != 0:
