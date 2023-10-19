@@ -139,6 +139,13 @@ One of the first methods, not so interesting these days.
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1L14q4To5rMK8q2E6whOibQBnPnVbRJ_7)  
 <p><img src='_out/some_cute_image-SIREN.jpg' /></p>
 
+* CPPN + [export to HLSL shaders](https://github.com/wxs/cppn-to-glsl)  
+Another early method, with exports for TouchDesigner, vvvv, Shadertoy, etc.  
+```
+python cppn.py -v -t "the text" --aest 0.5
+```
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1Kbbbwoet3igHPJ4KpNh8z3V-RxtstAcz)  
+
 ## Credits
 
 Based on [CLIP] model by OpenAI ([paper]).  
