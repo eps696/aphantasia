@@ -13,7 +13,7 @@ from imageio import imread, imsave
 try:
     from googletrans import Translator
     googletrans_ok = True
-except ImportError as e:
+except:
     googletrans_ok = False
 
 import torch
@@ -72,9 +72,7 @@ def get_args():
     parser.add_argument(       '--anima',   default=True, help='Animate motion')
     # depth
     parser.add_argument('-d',  '--depth',   default=0, type=float, help='Add depth with such strength, if > 0')
-    parser.add_argument(       '--tridepth', action='store_true', help='process depth 3 times [mirrored]')
-    parser.add_argument(   '--depth_model', default='AdaBins_nyu.pt', help='AdaBins model path')
-    parser.add_argument(   '--depth_mask',  default='depth/mask.jpg', help='depth mask path')
+    parser.add_argument(   '--depth_model', default='b', help='Depth Anything model: large, base or small')
     parser.add_argument(   '--depth_dir',   default=None, help='Directory to save depth, if not None')
     # tweaks
     parser.add_argument('-a',  '--align',   default='overscan', choices=['central', 'uniform', 'overscan', 'overmax'], help='Sampling distribution')
@@ -114,16 +112,19 @@ def get_args():
 
     return a
 
-def depth_transform(img_t, depth_infer, depth_mask, size, depthX=0, scale=1., shift=[0,0], colors=1, depth_dir=None, save_num=0):
-    size2 = [s//2 for s in size]
+def depth_transform(img_t, _deptha, depthX=0, scale=1., shift=[0,0], colors=1, depth_dir=None, save_num=0):
+    if not isinstance(depthX, float): depthX = float(depthX)
     if not isinstance(scale, float): scale = float(scale[0])
+    size = img_t.shape[-2:]
     # d X/Y define the origin point of the depth warp, effectively a "3D pan zoom", [-1..1]
     # plus = look ahead, minus = look aside
     dX = 100. * shift[0] / size[1]
     dY = 100. * shift[1] / size[0]
     # dZ = movement direction: 1 away (zoom out), 0 towards (zoom in), 0.5 stay
     dZ = 0.5 + 32. * (scale-1)
-    img = depth.depthwarp(img_t, depth_infer, depth_mask, size2, depthX, [dX,dY], dZ, save_path=depth_dir, save_num=save_num)
+    def ttt(x): return x
+    img = to_valid_rgb(ttt, colors = colors)(img_t)
+    img = depth.depthwarp(img_t, img, _deptha, depthX, [dX,dY], dZ, save_path=depth_dir, save_num=save_num)
     return img
 
 def frame_transform(img, size, angle, shift, scale, shear):
@@ -274,7 +275,7 @@ def main():
     if sz is not None: a.size = sz
 
     if a.depth != 0:
-        depth_infer, depth_mask = depth.init_adabins(size=a.size, model_path=a.depth_model, mask_path=a.depth_mask, tridepth=a.tridepth)
+        _deptha = depth.InferDepthAny(a.depth_model)
         if a.depth_dir is not None:
             os.makedirs(a.depth_dir, exist_ok=True)
             print(' depth dir:', a.depth_dir)
@@ -384,7 +385,7 @@ def main():
 
             if a.gen == 'RGB':
                 if a.depth > 0:
-                    params_tmp = depth_transform(params_tmp, depth_infer, depth_mask, a.size, a.depth, scale, shift, a.colors, a.depth_dir, glob_step)
+                    params_tmp = depth_transform(params_tmp, _deptha, a.depth, scale, shift, a.colors, a.depth_dir, glob_step)
                 params_tmp = frame_transform(params_tmp, a.size, angle, shift, scale, shear)
                 params, image_f, _ = pixel_image([1, 3, *a.size], resume=params_tmp)
                 img_tmp = None
@@ -393,7 +394,7 @@ def main():
                 if old_torch(): # 1.7.1
                     img_tmp = torch.irfft(params_tmp, 2, normalized=True, signal_sizes=a.size)
                     if a.depth > 0:
-                        img_tmp = depth_transform(img_tmp, depth_infer, depth_mask, a.size, a.depth, scale, shift, a.colors, a.depth_dir, glob_step)
+                        img_tmp = depth_transform(img_tmp, _deptha, a.depth, scale, shift, a.colors, a.depth_dir, glob_step)
                     img_tmp = frame_transform(img_tmp, a.size, angle, shift, scale, shear)
                     params_tmp = torch.rfft(img_tmp, 2, normalized=True)
                 else: # 1.8+
@@ -401,7 +402,7 @@ def main():
                         params_tmp = torch.view_as_complex(params_tmp)
                     img_tmp = torch.fft.irfftn(params_tmp, s=a.size, norm='ortho')
                     if a.depth > 0:
-                        img_tmp = depth_transform(img_tmp, depth_infer, depth_mask, a.size, a.depth, scale, shift, a.colors, a.depth_dir, glob_step)
+                        img_tmp = depth_transform(img_tmp, _deptha, a.depth, scale, shift, a.colors, a.depth_dir, glob_step)
                     img_tmp = frame_transform(img_tmp, a.size, angle, shift, scale, shear)
                     params_tmp = torch.fft.rfftn(img_tmp, s=a.size, dim=[2,3], norm='ortho')
                     params_tmp = torch.view_as_real(params_tmp)

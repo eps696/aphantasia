@@ -18,7 +18,7 @@ import torch.nn.functional as F
 
 import clip
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
-from sentence_transformers import SentenceTransformer
+# from sentence_transformers import SentenceTransformer
 import lpips
 
 from aphantasia.image import to_valid_rgb, fft_image, dwt_image
@@ -44,7 +44,7 @@ def get_args():
     parser.add_argument('-r',  '--resume',  default=None, help='Path to saved FFT snapshots, to resume from')
     parser.add_argument('-ops', '--opt_step', default=1, type=int, help='How many optimizing steps per save step')
     parser.add_argument('-tr', '--translate', action='store_true', help='Translate text with Google Translate')
-    parser.add_argument('-ml', '--multilang', action='store_true', help='Use SBERT multilanguage model for text')
+    # parser.add_argument('-ml', '--multilang', action='store_true', help='Use SBERT multilanguage model for text')
     parser.add_argument(       '--save_pt', action='store_true', help='Save FFT snapshots for further use')
     parser.add_argument('-v',  '--verbose',    dest='verbose', action='store_true')
     parser.add_argument('-nv', '--no-verbose', dest='verbose', action='store_false')
@@ -80,7 +80,7 @@ def get_args():
     if a.size is not None: a.size = [int(s) for s in a.size.split('-')][::-1]
     if len(a.size)==1: a.size = a.size * 2
     if (a.in_img is not None and a.sync != 0) or a.resume is not None: a.align = 'overscan'
-    if a.multilang is True: a.model = 'ViT-B/32' # sbert model is trained with ViT
+    # if a.multilang is True: a.model = 'ViT-B/32' # sbert model is trained with ViT
     if a.translate is True and googletrans_ok is not True: 
         print('\n Install googletrans module to enable translation!'); exit()
     if a.dualmod is not None: 
@@ -126,8 +126,8 @@ def main():
     if a.model in xmem.keys():
         a.samples = int(a.samples * xmem[a.model])
             
-    if a.multilang is True:
-        model_lang = SentenceTransformer('clip-ViT-B-32-multilingual-v1').cuda()
+    # if a.multilang is True:
+        # model_lang = SentenceTransformer('clip-ViT-B-32-multilingual-v1').cuda()
 
     if a.dualmod is not None: # second is vit-16
         model_clip2, _ = clip.load('ViT-B/16', jit=old_torch())
@@ -147,10 +147,9 @@ def main():
                 [subtxt, wt] = subtxt.split(':')
                 wt = float(wt)
             else: wt = 1.
-            if a.multilang is True:
-                emb = model_lang.encode([subtxt], convert_to_tensor=True, show_progress_bar=False)
-            else:
-                emb = model_clip.encode_text(clip.tokenize(subtxt).cuda())
+            emb = model_clip.encode_text(clip.tokenize(subtxt).cuda())
+            # if a.multilang is True:
+                # emb = model_lang.encode([subtxt], convert_to_tensor=True, show_progress_bar=False)
             embs.append([emb.detach().clone(), wt])
         return embs
     
@@ -207,7 +206,7 @@ def main():
         if a.dualmod is not None:
             not_enc2 = enc_text(a.in_txt0, model_clip2)
 
-    if a.multilang is True: del model_lang
+    # if a.multilang is True: del model_lang
 
     if a.in_img is not None and os.path.isfile(a.in_img):
         if a.verbose is True: print(' ref image:', basename(a.in_img))

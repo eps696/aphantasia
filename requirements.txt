@@ -3,16 +3,19 @@ imageio
 ipywidgets
 regex
 tqdm
-googletrans==3.1.0a0
+# googletrans==3.1.0a0
 torch>=1.7.1
 torchvision>=0.8.2
 opencv-python
-sentence_transformers
+# sentence_transformers
 transformers>=4.6.0
-kornia==0.5.3
+kornia>=0.5.3
 lpips
 omegaconf>=2.0.0
 pytorch-lightning>=1.0.8
 einops
-PyWavelets==1.1.1
+PyWavelets>=1.1.1
 git+https://github.com/fbcotter/pytorch_wavelets
+
+matplotlib
+scipy
