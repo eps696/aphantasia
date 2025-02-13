@@ -9,7 +9,7 @@ import shutil
 try:
     from googletrans import Translator
     googletrans_ok = True
-except ImportError as e:
+except:
     googletrans_ok = False
 
 import torch
